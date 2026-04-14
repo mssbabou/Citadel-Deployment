@@ -1,5 +1,5 @@
 # Citadel Deployment Server Configuration
-# Auto-generated on first run. Edit before starting server.
+# Written to /opt/citadel/config.txt by install-server.sh. Edit before starting the service.
 #
 # IMPORTANT: Change the token to a strong random value in production
 # To generate a token:

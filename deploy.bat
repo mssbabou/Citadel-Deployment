@@ -50,7 +50,7 @@ if "!SOURCE:~-4!"==".zip" (
     copy "!SOURCE!" "!TEMP_ZIP!" >nul
 ) else (
     echo Zipping: !SOURCE!
-    powershell -Command "Compress-Archive -Path '!SOURCE!' -DestinationPath '!TEMP_ZIP!' -Force"
+    powershell -Command "Compress-Archive -Path '!SOURCE!\*' -DestinationPath '!TEMP_ZIP!' -Force"
 )
 
 if not exist "!TEMP_ZIP!" (

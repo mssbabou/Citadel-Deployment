@@ -35,6 +35,7 @@ fi
 
 # Create temp zip
 TEMP_ZIP=$(mktemp --suffix=.zip --tmpdir="$TEMP_DIR")
+rm -f "$TEMP_ZIP"   # zip won't overwrite an existing file cleanly
 trap "rm -f $TEMP_ZIP" EXIT
 
 # Zip the source
@@ -43,7 +44,7 @@ if [[ "$SOURCE" == *.zip ]]; then
     cp "$SOURCE" "$TEMP_ZIP"
 elif [ -d "$SOURCE" ]; then
     echo "📦 Zipping directory: $SOURCE"
-    zip -r -q "$TEMP_ZIP" "$SOURCE"
+    (cd "$(dirname "$SOURCE")" && zip -r -q "$TEMP_ZIP" "$(basename "$SOURCE")")
 else
     echo "📦 Zipping file: $SOURCE"
     zip -q "$TEMP_ZIP" "$SOURCE"

@@ -24,30 +24,21 @@ Systemd Service on target system
 
 ### 1. Server Setup (on target Linux server)
 
-Download the server binary from the latest release:
+Run the installer:
 
 ```bash
-curl -LO https://github.com/mssbabou/citadel-deployment/releases/latest/download/deploy-server
-chmod +x deploy-server
-```
-
-First run creates a `config.txt` in the same directory — edit it with your token:
-
-```bash
-./deploy-server   # creates config.txt then exits
-nano config.txt
-```
-
-**Option A: Run as background service**
-
-```bash
-sudo ./deploy-server --install
+curl -fsSL https://github.com/mssbabou/Citadel-Deployment/releases/latest/download/install-server.sh | sudo bash
 ```
 
 This will:
-- Create a systemd service file
-- Enable auto-start on boot
-- Start the service immediately
+- Download the `deploy-server` binary to `/opt/citadel/`
+- Create and enable a systemd service
+- Write a default `config.txt` — edit it with your token before starting
+
+```bash
+sudo nano /opt/citadel/config.txt
+sudo systemctl start deploy-server.service
+```
 
 View logs:
 
@@ -55,13 +46,7 @@ View logs:
 journalctl -u deploy-server.service -f
 ```
 
-**Option B: Run directly**
-
-```bash
-./deploy-server
-```
-
-Server will listen on `http://0.0.0.0:9090`
+To update to the latest version at any time, just re-run the installer — your config is preserved.
 
 ### 2. Configure Your Service
 
@@ -185,8 +170,8 @@ journalctl -u deploy-server.service -n 50
 
 ### Permission Denied on Server
 
-- Ensure the binary has execute permissions: `chmod +x deploy-server`
-- For `--install`, use sudo: `sudo ./deploy-server --install`
+- The installer requires root: `curl ... | sudo bash`
+- If the binary lost execute permissions: `sudo chmod +x /opt/citadel/deploy-server`
 
 ### Connection Refused
 
