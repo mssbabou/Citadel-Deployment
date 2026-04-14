@@ -2,17 +2,18 @@
 
 ## 5-Minute Server Setup
 
-### Step 1: Download Server Script
+### Step 1: Download Server Binary
 
 ```bash
-curl -LO https://github.com/mssbabou/citadel-deployment/releases/latest/download/deploy-server.py
+curl -LO https://github.com/mssbabou/citadel-deployment/releases/latest/download/deploy-server
+chmod +x deploy-server
 ```
 
 ### Step 2: Configure Token
 
 ```bash
 # First run creates config.txt then exits
-python3 deploy-server.py
+./deploy-server
 
 # Generate a strong token and set it
 TOKEN=$(openssl rand -base64 32)
@@ -55,10 +56,10 @@ sudo systemctl start app.service
 ### Step 4: Start Deploy Server
 ```bash
 # Run directly
-python3 deploy-server.py
+./deploy-server
 
 # Or install as service
-sudo python3 deploy-server.py --install
+sudo ./deploy-server --install
 ```
 
 View logs:
@@ -72,82 +73,16 @@ journalctl -u deploy-server.service -f
 
 ## Testing the Server
 
-### Setup Environment
-
-First, create a virtual environment (required on Arch Linux and other systems with externally-managed Python):
+### Run Automated Tests
 
 ```bash
-# Create virtual environment
-python3 -m venv .venv
-
-# Activate it
-source .venv/bin/activate
-```
-
-Or use the setup script:
-
-```bash
-chmod +x setup.sh
-./setup.sh
-```
-
-### Quick Manual Test
-
-In a new terminal, run:
-
-```bash
-# Make sure venv is activated
-source .venv/bin/activate
-
-python3 test_local_deployment.py
-```
-
-This tests:
-- Server connectivity
-- Authentication (correct and incorrect tokens)
-- Deployment with test payload
-
-### Automated Tests
-
-Run comprehensive test suite:
-
-```bash
-pip install -r requirements-test.txt
-pytest tests/ -v
-```
-
----
-
-### View Server Logs
-```bash
-journalctl -u deploy-server.service -f           # Real-time
-journalctl -u deploy-server.service -n 100       # Last 100 lines
-```
-
-### Check Service Status
-```bash
-systemctl status app.service
-systemctl restart app.service
-systemctl stop app.service
-systemctl start app.service
-```
-
-### Generate Strong Token
-```bash
-# Linux
-openssl rand -base64 32
-
-# macOS
-openssl rand -base64 32
-
-# Windows PowerShell
-[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-Random -Maximum 1000000000).ToString()))
+dotnet test server/CitadelServer.sln
 ```
 
 ### Test Connection
 ```bash
-curl -H "Authorization: Bearer your-token" https://deploy.example.com/deploy
-# Should return: "405 Method Not Allowed" (POST required)
+curl -X GET -H "Authorization: Bearer your-token" https://deploy.example.com/deploy
+# Should return: 405 Method Not Allowed (POST required)
 ```
 
 ---

@@ -1,3 +1,0 @@
-﻿<Project>
-  <Import Project="..\build\deploy-server.props" />
-</Project>
