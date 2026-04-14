@@ -91,7 +91,7 @@ EOF
     echo "     Then run: sudo systemctl start $SERVICE_NAME"
     echo ""
 else
-    echo "==> Existing config.txt preserved"
+    echo "==> Existing config.toml preserved"
     systemctl restart "$SERVICE_NAME"
     echo "==> Service restarted with latest binary"
 fi

@@ -4,7 +4,7 @@ var configPath = Path.Combine(AppContext.BaseDirectory, "config.toml");
 
 if (!File.Exists(configPath))
 {
-    Console.Error.WriteLine($"Error: config.txt not found at {configPath}");
+    Console.Error.WriteLine($"Error: config.toml not found at {configPath}");
     Console.Error.WriteLine("Run the installer: sudo bash install-server.sh");
     return;
 }
@@ -13,7 +13,7 @@ var config = ServerConfig.Load(configPath);
 
 if (string.IsNullOrEmpty(config.Token))
 {
-    Console.Error.WriteLine("Error: token not set in config.txt");
+    Console.Error.WriteLine("Error: token not set in config.toml");
     return;
 }
 
