@@ -25,28 +25,27 @@ public sealed class ServerConfig
         var token = "";
         var port = 9090;
 
-        if (root.TryGetValue("server", out var serverObj) && serverObj is TomlTable serverTable)
+        if (root != null && root.TryGetValue("server", out var serverObj) && serverObj is TomlTable serverTable)
         {
-            if (serverTable.TryGetValue("token", out var t) && t is not null)
+            if (serverTable.TryGetValue("token", out var t))
                 token = t.ToString() ?? "";
             if (serverTable.TryGetValue("port", out var p) && p is long pl)
                 port = (int)pl;
         }
 
         var profiles = new Dictionary<string, Profile>(StringComparer.OrdinalIgnoreCase);
-        if (root.TryGetValue("profiles", out var profilesObj) && profilesObj is TomlTable profilesTable)
+        if (!root!.TryGetValue("profiles", out var profilesObj) || profilesObj is not TomlTable profilesTable)
+            return new ServerConfig { Token = token, Port = port, Profiles = profiles };
+        foreach (var (name, value) in profilesTable)
         {
-            foreach (var (name, value) in profilesTable)
-            {
-                if (value is not TomlTable profileTable) continue;
+            if (value is not TomlTable profileTable) continue;
 
-                var deployDir = profileTable.TryGetValue("deploy_dir", out var dd) ? dd?.ToString() ?? "" : "";
-                var services = profileTable.TryGetValue("services", out var svcObj) && svcObj is TomlArray svcArr
-                    ? svcArr.OfType<string>().ToArray()
-                    : [];
+            var deployDir = profileTable.TryGetValue("deploy_dir", out var dd) ? dd.ToString() ?? "" : "";
+            var services = profileTable.TryGetValue("services", out var svcObj) && svcObj is TomlArray svcArr
+                ? svcArr.OfType<string>().ToArray()
+                : [];
 
-                profiles[name] = new Profile { DeployDir = deployDir, Services = services };
-            }
+            profiles[name] = new Profile { DeployDir = deployDir, Services = services };
         }
 
         return new ServerConfig { Token = token, Port = port, Profiles = profiles };

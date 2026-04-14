@@ -69,7 +69,7 @@ public static class DeployHandler
             var realTmpDir = Path.GetFullPath(tmpDir);
             string? unsafeEntry = null;
 
-            using (var archive = ZipFile.OpenRead(tmpZip))
+            await using (var archive = await ZipFile.OpenReadAsync(tmpZip))
             {
                 foreach (var entry in archive.Entries)
                 {
@@ -85,7 +85,7 @@ public static class DeployHandler
                 }
 
                 if (unsafeEntry == null)
-                    archive.ExtractToDirectory(tmpDir, overwriteFiles: true);
+                    await archive.ExtractToDirectoryAsync(tmpDir, overwriteFiles: true);
             }
 
             File.Delete(tmpZip);

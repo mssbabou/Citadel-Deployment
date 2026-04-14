@@ -2,14 +2,13 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
-using CitadelServer;
 using Microsoft.AspNetCore.Builder;
 using Xunit;
 
 namespace CitadelServer.Tests;
 
 /// <summary>
-/// Integration tests for the deploy endpoint.
+/// Integration tests for the deployment endpoint.
 /// Starts a real WebApplication on a free port for each test instance.
 /// </summary>
 public class DeployHandlerTests : IAsyncLifetime
@@ -202,11 +201,11 @@ public class DeployHandlerTests : IAsyncLifetime
     public async Task ZipSlipPathTraversal_Rejected()
     {
         using var ms = new MemoryStream();
-        using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        await using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
         {
             var entry = archive.CreateEntry("../../evil.txt");
-            using var w = new StreamWriter(entry.Open());
-            w.Write("I should not escape");
+            await using var w = new StreamWriter(await entry.OpenAsync());
+            await w.WriteAsync("I should not escape");
         }
 
         var r = await _client!.SendAsync(DeployRequest(ms.ToArray()));
@@ -218,9 +217,9 @@ public class DeployHandlerTests : IAsyncLifetime
     public async Task AbsolutePathInZip_Rejected()
     {
         using var ms = new MemoryStream();
-        using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        await using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
         {
-            archive.CreateEntry("/etc/passwd").Open().Close();
+            (await archive.CreateEntry("/etc/passwd").OpenAsync()).Close();
         }
 
         var r = await _client!.SendAsync(DeployRequest(ms.ToArray()));
