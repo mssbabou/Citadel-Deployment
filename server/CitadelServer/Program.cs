@@ -19,6 +19,3 @@ if (string.IsNullOrEmpty(config.Token))
 
 Console.WriteLine($"deploy server listening on :{config.Port}");
 AppFactory.Create(config, $"http://0.0.0.0:{config.Port}").Run();
-
-// Required so WebApplicationFactory<Program> can reference this assembly entry point
-public partial class Program { }
