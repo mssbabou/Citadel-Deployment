@@ -35,7 +35,7 @@ public class DeployHandlerTests : IAsyncLifetime
                 [TestProfile] = new ServerConfig.Profile
                 {
                     DeployDir = _deployDir,
-                    Services = ["test-svc"],
+                    Services = [],
                 }
             }
         };
