@@ -86,16 +86,28 @@ port = 9090
 deploy_dir = "/opt/myapp"
 services = ["myapp.service"]
 EOF
+    YELLOW='\033[0;33m'
+    WHITE='\033[1;37m'
+    RESET='\033[0m'
     echo ""
-    echo "  !! Edit $CONFIG — set a strong token and configure your profiles !!"
-    echo "     Then run: sudo systemctl start $SERVICE_NAME"
+    echo "Installation complete. To finish setup:"
     echo ""
+    echo -e "${YELLOW}============================================================${RESET}"
+    echo ""
+    echo -e "${YELLOW}  1. Edit the config file:${RESET}"
+    echo ""
+    echo -e "${WHITE}       nano $CONFIG${RESET}"
+    echo ""
+    echo -e "${YELLOW}  2. Start the server:${RESET}"
+    echo ""
+    echo -e "${WHITE}       sudo systemctl start $SERVICE_NAME${RESET}"
+    echo ""
+    echo -e "${YELLOW}============================================================${RESET}"
 else
     echo "==> Existing config.toml preserved"
     systemctl restart "$SERVICE_NAME"
     echo "==> Service restarted with latest binary"
+    echo ""
+    echo "Done. View logs with:"
+    echo "  journalctl -u $SERVICE_NAME -f"
 fi
-
-echo ""
-echo "Done. View logs with:"
-echo "  journalctl -u $SERVICE_NAME -f"
