@@ -27,3 +27,5 @@ obj/
 *.user
 .vs/
 publish/
+Backup/
+UpgradeLog.htm
