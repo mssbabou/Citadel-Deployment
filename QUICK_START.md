@@ -11,7 +11,7 @@ curl -fsSL https://github.com/mssbabou/Citadel-Deployment/releases/latest/downlo
 This will:
 - Download the latest `deploy-server` binary to `/opt/citadel/`
 - Create a systemd service and enable it on boot
-- Write a default `config.txt` and tell you to set your token
+- Write a default `config.toml` and tell you to set your token
 
 Safe to re-run — running it again updates to the latest version without touching your config.
 
@@ -20,7 +20,7 @@ Safe to re-run — running it again updates to the latest version without touchi
 ```bash
 # Generate a strong token
 TOKEN=$(openssl rand -base64 32)
-sudo nano /opt/citadel/config.txt
+sudo nano /opt/citadel/config.toml
 # Set: token=<your generated token>
 
 sudo systemctl start deploy-server.service
@@ -97,7 +97,7 @@ sudo systemctl start deploy-server.service
 ### "unauthorized"
 Check that client token matches the server config:
 ```bash
-sudo cat /opt/citadel/config.txt
+sudo cat /opt/citadel/config.toml
 ```
 
 ### Service not restarting after deploy
@@ -132,4 +132,4 @@ curl -fsSL https://github.com/mssbabou/Citadel-Deployment/releases/latest/downlo
 - [ ] Monitoring/alerting set up for service failures
 - [ ] Token rotated regularly
 - [ ] Tested rollback procedure
-- [ ] config.txt file has restricted permissions (`sudo chmod 600 /opt/citadel/config.txt`)
+- [ ] config.toml file has restricted permissions (`sudo chmod 600 /opt/citadel/config.toml`)

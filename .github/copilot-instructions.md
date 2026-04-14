@@ -2,77 +2,117 @@
 
 ## Architecture
 
-Three-component system for deploying applications to a Linux server via HTTP:
+Three-component deploy-over-HTTP system:
 
 ```
 Client (deploy.sh / deploy.bat)
-  → POST /deploy  (zip payload + Bearer token + X-Service + X-Deploy-Dir headers)
-Deployment Server (deploy-server.py, port 9090)
-  → stop systemd service → replace deploy dir → start systemd service
+  → POST /deploy  (multipart zip + Bearer token + X-Profile header)
+.NET 10 server (server/CitadelServer, port 9090)
+  → look up profile → stop services → replace deploy dir → start services
 ```
 
-- **`deploy-server.py`** — Python `http.server`-based server. Reads `config.txt` from its own directory at startup (not environment variables). Exits with error if `config.txt` is missing or has no token.
-- **`deploy.sh` / `deploy.bat`** — Client templates. Must be customized with `DEPLOY_URL`, `SERVICE`, and `DEPLOY_DIR`. Read `AUTH_TOKEN` from a sibling `.env` file.
-- **`tests/`** — Pytest integration tests. Use `unittest.TestCase` classes (not bare pytest functions). The server is not actually started; systemd calls are silently swallowed.
+- **`server/CitadelServer`** — ASP.NET Core HTTP server. Reads `config.toml` from `AppContext.BaseDirectory` at startup. Exits with error if `config.toml` is missing or token is not set.
+- **`deploy.sh` / `deploy.bat`** — Client templates. Must be customized with `DEPLOY_URL` and `PROFILE`. Read `AUTH_TOKEN` from a sibling `.env` file.
+- **`install-server.sh`** — Installer/updater. Downloads the binary, writes the systemd service, creates `config.toml` on first run. Safe to re-run for updates.
 
 ## Key Conventions
 
 ### Configuration split
-- **Server** config lives in `config.txt` (INI-like `key=value`, `#` comments). Only `token` and `port` are supported.
-- **Client** credentials and all deployment parameters live in `.env` (sourced by the shell scripts). Required keys: `AUTH_TOKEN`, `DEPLOY_URL`, `SERVICE`, `DEPLOY_DIR`. Optional: `SOURCE` (default source path when no CLI arg is given).
-- Neither file is committed; see `config.txt.example` and `.env.example` for templates.
-- Both `deploy.sh` and `deploy.bat` are **stateless templates** — no hardcoded values. Distribute the script + a filled-in `.env` file.
+- **Server** config lives in `config.toml` (TOML format). `[server]` section has `token` and `port`. `[profiles.*]` sections each have `deploy_dir` and `services[]`.
+- **Client** credentials live in `.env` (sourced by shell scripts). Required: `AUTH_TOKEN`, `DEPLOY_URL`, `PROFILE`. Optional: `SOURCE` (default deploy source).
+- Neither file is committed; see `config.toml.example` and `.env.example` for templates.
+- Both `deploy.sh` and `deploy.bat` are **stateless templates** — no hardcoded values. Distribute alongside a filled-in `.env`.
 
-### Deployment headers
-Service name and deploy directory are passed to the server as HTTP headers, not in the request body:
+### Deployment profiles
+Instead of clients specifying arbitrary paths and services, the server holds named profiles in `config.toml`. The client sends `X-Profile: myapp` and the server looks up the profile to get:
+- `deploy_dir` — absolute path where files are deployed
+- `services[]` — one or more systemd services to stop before deploy and start after
+
+This removes arbitrary path/service access from authenticated clients.
+
+Example `config.toml`:
+```toml
+[server]
+token = "abc123"
+port = 9090
+
+[profiles.myapp]
+deploy_dir = "/opt/myapp"
+services = ["myapp.service", "nginx.service"]
+
+[profiles.frontend]
+deploy_dir = "/var/www/html"
+services = ["nginx.service"]
 ```
-X-Service: <systemd service name>
-X-Deploy-Dir: <absolute path on server>
-```
-Defaults are `nginx` and `/var/www` if headers are absent.
 
 ### Security notes
 - **Zip slip**: the server validates all zip member paths before extraction; entries that escape the temp dir get a 400 response.
-- **Token comparison**: uses `hmac.compare_digest` (constant-time) to prevent timing attacks.
-
-
-If the uploaded zip contains exactly one top-level directory, the server deploys that directory's *contents* (not the directory itself) to `X-Deploy-Dir`. Flat zips are deployed as-is.
+- **Token comparison**: uses `CryptographicOperations.FixedTimeEquals` (constant-time) to prevent timing attacks.
+- **Profile isolation**: clients can only deploy to paths and control services that are defined in config profiles.
 
 ### Multipart handling
 `deploy.sh` sends the zip via `curl -F` (multipart/form-data). The server manually splits on the boundary to extract the raw zip bytes — there is no multipart library dependency.
 
-### Server module import in tests
-`deploy-server.py` contains a hyphen, so tests load it with `importlib.util.spec_from_file_location` rather than a normal import.
+### Single-root-dir unwrapping
+If the uploaded zip contains exactly one top-level directory, the server deploys that directory's *contents* (not the directory itself) to `deploy_dir`. Flat zips are deployed as-is. This matches how clients zip: `(cd "$(dirname "$SOURCE")" && zip -r "$TEMP_ZIP" "$(basename "$SOURCE")")`.
 
 ## Testing
 
+### Unit and integration tests
 ```bash
-# First-time setup
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements-test.txt
+# Full suite
+dotnet test server/CitadelServer.sln
 
-# Run full suite
-pytest tests/ -v
+# Single test
+dotnet test server/CitadelServer.sln --filter "FullyQualifiedName~ValidFlatZip_DeploysFiles"
 
-# Run a single test
-pytest tests/test_deployment.py::TestDeploymentServer::test_zip_extraction -v
-
-# With coverage
-pytest tests/ --cov=. --cov-report=html
+# With detailed output
+dotnet test server/CitadelServer.sln --logger "console;verbosity=normal"
 ```
 
-Tests use port **19090** (unit) and **19092** (integration) to avoid conflicts with a running server on 9090. Systemd subprocess calls (`systemctl`) are not mocked — they are wrapped in `try/except` in the server and silently ignored when unavailable.
+Tests (`server/CitadelServer.Tests/DeployHandlerTests.cs`) use `IAsyncLifetime` to start a real `WebApplication` on a free port per test instance via `AppFactory.Create`. No mocks — `systemctl` calls happen but fail silently (tests run on machines without systemd). Each test gets its own temp deploy dir, cleaned up in `DisposeAsync`.
 
-### Integration tests (`tests/test_integration.py`)
-Starts the real `Handler` in an `HTTPServer` thread. Covers auth bypass attempts, zip slip attacks, invalid payloads, valid deployments, and nested-zip unwrapping. The server module is loaded via `importlib.util.spec_from_file_location` and its `TOKEN` global is patched to the test token after import.
+Test coverage includes:
+- Authentication (no token, wrong token, malformed header)
+- Profile lookup (missing X-Profile header, unknown profile)
+- Unknown endpoint → 404
+- Invalid zip → 400
+- Zip slip path traversal → 400
+- Absolute paths in zip → 400
+- Valid flat zip deployment
+- Single root directory unwrapping
+- Deployment replacing existing files
 
 ### Manual smoke test
 ```bash
-# Terminal 1
-python3 deploy-server.py
+# Terminal 1 — prepare config and start server
+mkdir -p /tmp/citadel-test
+cat > server/CitadelServer/bin/Debug/net10.0/config.toml << 'EOF'
+[server]
+token = "test-token"
+port = 9090
 
-# Terminal 2 (venv activated)
-python3 test_local_deployment.py
+[profiles.test]
+deploy_dir = "/tmp/citadel-test"
+services = []
+EOF
+dotnet run --project server/CitadelServer
+
+# Terminal 2 — create .env and deploy
+cat > .env << 'EOF'
+AUTH_TOKEN=test-token
+DEPLOY_URL=http://localhost:9090/deploy
+PROFILE=test
+SOURCE=./test-source
+EOF
+mkdir test-source && echo "hello" > test-source/hello.txt
+./deploy.sh
+# Verify: ls /tmp/citadel-test/hello.txt
 ```
-`test_local_deployment.py` sends real HTTP requests and validates auth + deployment round-trip.
+
+## Code organization
+
+- `Program.cs` — Entry point. Loads `config.toml`, validates token, starts the ASP.NET Core app.
+- `AppFactory.cs` — Builds the `WebApplication` and registers `POST /deploy`. Extracted as a public factory so tests can boot a real server in-process.
+- `DeployHandler.cs` — The entire deploy pipeline: auth, profile lookup, multipart parsing, zip validation, zip-slip checks, single-root-dir unwrapping, systemctl stop/start (multiple services), file replacement, cleanup. Attempts service recovery on failure.
+- `ServerConfig.cs` — TOML config loader using `Tomlyn`. Parses `[server]` and `[profiles.*]` sections.

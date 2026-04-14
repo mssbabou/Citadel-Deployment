@@ -6,7 +6,7 @@ A cross-platform deployment system for managing service updates via HTTP. Deploy
 
 The Citadel Deployment System consists of three components:
 
-- **Deployment Server** (`server/CitadelServer`) - .NET 8 HTTP server running on your deployment target (Linux)
+- **Deployment Server** (`server/CitadelServer`) - .NET 10 HTTP server running on your deployment target (Linux)
 - **Linux Client** (`deploy.sh`) - Bash script for deploying from Linux systems
 - **Windows Client** (`deploy.bat`) - Batch script for deploying from Windows systems
 
@@ -33,10 +33,10 @@ curl -fsSL https://github.com/mssbabou/Citadel-Deployment/releases/latest/downlo
 This will:
 - Download the `deploy-server` binary to `/opt/citadel/`
 - Create and enable a systemd service
-- Write a default `config.txt` — edit it with your token before starting
+- Write a default `config.toml` — edit it with your token before starting
 
 ```bash
-sudo nano /opt/citadel/config.txt
+sudo nano /opt/citadel/config.toml
 sudo systemctl start deploy-server.service
 ```
 
@@ -95,7 +95,7 @@ curl -LO https://github.com/mssbabou/citadel-deployment/releases/latest/download
 curl -LO https://github.com/mssbabou/citadel-deployment/releases/latest/download/.env.example
 chmod +x deploy.sh
 cp .env.example .env
-nano .env   # fill in AUTH_TOKEN, DEPLOY_URL, DEPLOY_DIR (SERVICE is optional)
+nano .env   # fill in AUTH_TOKEN, DEPLOY_URL, PROFILE
 ```
 
 ```powershell
@@ -103,7 +103,7 @@ nano .env   # fill in AUTH_TOKEN, DEPLOY_URL, DEPLOY_DIR (SERVICE is optional)
 Invoke-WebRequest https://github.com/mssbabou/citadel-deployment/releases/latest/download/deploy.bat -OutFile deploy.bat
 Invoke-WebRequest https://github.com/mssbabou/citadel-deployment/releases/latest/download/.env.example -OutFile .env.example
 Copy-Item .env.example .env
-notepad .env   # fill in AUTH_TOKEN, DEPLOY_URL, SERVICE, DEPLOY_DIR
+notepad .env   # fill in AUTH_TOKEN, DEPLOY_URL, PROFILE
 ```
 
 ## Usage Guide
@@ -135,7 +135,7 @@ journalctl -u deploy-server.service -n 50
 
 ### Important
 
-- **Change the default token** in `config.txt` to a strong, random value
+- **Change the default token** in `config.toml` to a strong, random value
 - **Use HTTPS** in production by running the server behind a reverse proxy (nginx/Apache)
 - **Firewall access** - only allow deployment clients to reach the server
 - **Protect `.env` files** - use `chmod 600` on Linux to restrict permissions
@@ -148,13 +148,13 @@ journalctl -u deploy-server.service -n 50
 - [ ] Configure reverse proxy with HTTPS/TLS
 - [ ] Set appropriate file permissions on `.env` files
 - [ ] Monitor systemd logs regularly
-- [ ] Backup `config.txt` securely
+- [ ] Backup `config.toml` securely
 
 ## Troubleshooting
 
 ### "unauthorized" Response
 
-- Verify `AUTH_TOKEN` in `.env` matches token in server's `config.txt`
+- Verify `AUTH_TOKEN` in `.env` matches token in server's `config.toml`
 - Check server logs: `journalctl -u deploy-server.service -f`
 
 ### "not a valid zip" Error
@@ -165,7 +165,7 @@ journalctl -u deploy-server.service -n 50
 ### Service Won't Start After Deployment
 
 - Check service logs: `journalctl -u app.service -n 50`
-- Verify `DEPLOY_DIR` permissions match service `User`
+- Verify profile `deploy_dir` permissions match the app service's `User`
 - Manually test service: `sudo systemctl start app.service`
 
 ### Permission Denied on Server
@@ -184,12 +184,12 @@ journalctl -u deploy-server.service -n 50
 ```bash
 # Build self-contained single-file binary for Linux
 dotnet publish server/CitadelServer -r linux-x64 --self-contained -p:PublishSingleFile=true -c Release
-# Binary: server/CitadelServer/bin/Release/net8.0/linux-x64/publish/deploy-server
+# Binary: server/CitadelServer/bin/Release/net10.0/linux-x64/publish/deploy-server
 ```
 
 ## Configuration Reference
 
-### config.txt (Server)
+### config.toml (Server)
 
 ```ini
 # Authentication token for client requests
@@ -207,7 +207,7 @@ port=9090
 
 ```
 citadel-deployment/
-├── server/                      # .NET 8 deployment server
+├── server/                      # .NET 10 deployment server
 │   ├── CitadelServer.sln
 │   ├── CitadelServer/           # Server project
 │   │   ├── CitadelServer.csproj
@@ -222,7 +222,7 @@ citadel-deployment/
 ├── deploy.bat                   # Batch client template
 ├── test_local_deployment.py     # Manual local test script
 ├── setup.sh                     # Development environment setup script
-├── config.txt.example           # Server configuration template
+├── config.toml.example           # Server configuration template
 ├── .env.example                 # Client authentication template
 ├── .gitignore                   # Git ignore rules
 ├── README.md                    # Full documentation
@@ -235,7 +235,7 @@ The project includes xUnit integration tests for the .NET deployment server. Tes
 
 ### Setup
 
-Requires the [.NET 8 SDK](https://dotnet.microsoft.com/download).
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
 ### Run Tests
 
