@@ -3,7 +3,8 @@
 # Run as root. Safe to run multiple times — always installs the latest release.
 #
 # Usage:
-#   sudo bash install-server.sh
+#   sudo bash install-server.sh            # install or update
+#   sudo bash install-server.sh --uninstall  # remove everything
 
 set -e
 
@@ -17,6 +18,22 @@ SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 if [ "$(id -u)" -ne 0 ]; then
     echo "Error: run with sudo" >&2
     exit 1
+fi
+
+if [ "${1:-}" = "--uninstall" ]; then
+    echo "==> Stopping and disabling service"
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+
+    echo "==> Removing systemd unit"
+    rm -f "$SERVICE_PATH"
+    systemctl daemon-reload
+
+    echo "==> Removing $INSTALL_DIR"
+    rm -rf "$INSTALL_DIR"
+
+    echo "Done. Citadel deploy server has been removed."
+    exit 0
 fi
 
 echo "==> Creating install directory: $INSTALL_DIR"
