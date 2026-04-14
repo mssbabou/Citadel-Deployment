@@ -6,19 +6,32 @@ namespace CitadelServer;
 
 public static class DeployHandler
 {
-    public static async Task HandleAsync(HttpContext ctx, string token)
+    public static async Task HandleAsync(HttpContext ctx, ServerConfig config)
     {
         // --- Auth ---
         var authHeader = ctx.Request.Headers.Authorization.ToString();
-        var expected = $"Bearer {token}";
+        var expected = $"Bearer {config.Token}";
         if (!ConstantTimeEquals(authHeader, expected))
         {
             await Respond(ctx, 401, "unauthorized");
             return;
         }
 
-        var service = ctx.Request.Headers["X-Service"].FirstOrDefault() ?? "";
-        var deployDir = ctx.Request.Headers["X-Deploy-Dir"].FirstOrDefault() ?? "/var/www";
+        // --- Profile lookup ---
+        var profileName = ctx.Request.Headers["X-Profile"].FirstOrDefault() ?? "";
+        if (string.IsNullOrEmpty(profileName))
+        {
+            await Respond(ctx, 400, "missing X-Profile header");
+            return;
+        }
+        if (!config.Profiles.TryGetValue(profileName, out var profile))
+        {
+            await Respond(ctx, 400, $"unknown profile: {profileName}");
+            return;
+        }
+
+        var deployDir = profile.DeployDir;
+        var services = profile.Services;
 
         string? tmpZip = null;
         string? tmpDir = null;
@@ -60,7 +73,6 @@ public static class DeployHandler
             {
                 foreach (var entry in archive.Entries)
                 {
-                    // Skip directory entries
                     if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\'))
                         continue;
 
@@ -91,26 +103,26 @@ public static class DeployHandler
             if (entries.Length == 1 && Directory.Exists(entries[0]))
                 source = entries[0];
 
-            // --- Stop service ---
-            if (!string.IsNullOrEmpty(service))
-                RunSystemctl("stop", service);
+            // --- Stop services ---
+            foreach (var svc in services)
+                RunSystemctl("stop", svc);
 
             // --- Replace files ---
             if (Directory.Exists(deployDir))
                 Directory.Delete(deployDir, recursive: true);
             CopyDirectory(source, deployDir);
 
-            // --- Start service ---
-            if (!string.IsNullOrEmpty(service))
-                RunSystemctl("start", service);
+            // --- Start services ---
+            foreach (var svc in services)
+                RunSystemctl("start", svc);
 
             await Respond(ctx, 200, "deployed");
         }
         catch (Exception ex)
         {
-            // Recovery: attempt to restart service even on failure
-            if (!string.IsNullOrEmpty(service))
-                RunSystemctl("start", service);
+            // Recovery: attempt to restart all services even on failure
+            foreach (var svc in services)
+                RunSystemctl("start", svc);
 
             await Respond(ctx, 500, ex.Message);
         }
@@ -139,7 +151,6 @@ public static class DeployHandler
     {
         var aBytes = Encoding.UTF8.GetBytes(a);
         var bBytes = Encoding.UTF8.GetBytes(b);
-        // Pad the shorter one so FixedTimeEquals receives equal-length spans
         int len = Math.Max(aBytes.Length, bBytes.Length);
         var aPadded = new byte[len];
         var bPadded = new byte[len];
@@ -164,7 +175,6 @@ public static class DeployHandler
 
     static byte[]? ExtractFromMultipart(byte[] body, string contentType)
     {
-        // Parse boundary from Content-Type header
         const string boundaryPrefix = "boundary=";
         var idx = contentType.IndexOf(boundaryPrefix, StringComparison.OrdinalIgnoreCase);
         if (idx < 0) return null;
@@ -178,12 +188,10 @@ public static class DeployHandler
             if (part.AsSpan().IndexOf("filename="u8) < 0)
                 continue;
 
-            // Find the double CRLF separating headers from body
             var headerEnd = IndexOf(part, "\r\n\r\n"u8);
             if (headerEnd < 0) continue;
 
             var payload = part[(headerEnd + 4)..];
-            // Strip trailing CRLF
             if (payload.Length >= 2 && payload[^2] == '\r' && payload[^1] == '\n')
                 payload = payload[..^2];
 

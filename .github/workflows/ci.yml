@@ -83,6 +83,7 @@ jobs:
               { path: 'deploy.sh',                                                                 name: 'deploy.sh',         type: 'text/x-sh' },
               { path: 'deploy.bat',                                                                name: 'deploy.bat',        type: 'text/plain' },
               { path: '.env.example',                                                              name: '.env.example',      type: 'text/plain' },
+              { path: 'config.toml.example',                                                       name: 'config.toml.example', type: 'text/plain' },
             ];
 
             for (const asset of assets) {

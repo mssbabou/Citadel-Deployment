@@ -9,4 +9,8 @@
     <SelfContained>false</SelfContained>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Tomlyn" Version="2.3.0" />
+  </ItemGroup>
+
 </Project>

@@ -16,7 +16,7 @@ public static class AppFactory
         var app = builder.Build();
 
         app.MapPost("/deploy", (HttpContext ctx) =>
-            DeployHandler.HandleAsync(ctx, config.Token));
+            DeployHandler.HandleAsync(ctx, config));
 
         return app;
     }

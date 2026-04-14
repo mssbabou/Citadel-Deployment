@@ -24,7 +24,7 @@ for /f "usebackq tokens=1,* delims==" %%a in ("!ENV_FILE!") do (
 )
 
 REM Validate required variables
-for %%v in (AUTH_TOKEN DEPLOY_URL DEPLOY_DIR) do (
+for %%v in (AUTH_TOKEN DEPLOY_URL PROFILE) do (
     if "!%%v!"=="" (
         echo Error: %%v not set in .env
         exit /b 1
@@ -64,13 +64,10 @@ echo Created zip: !ZIP_SIZE!
 
 REM Deploy - write body to temp file, capture HTTP status code
 set "BODY_FILE=%TEMP%\citadel_body_%RANDOM%.txt"
-echo Deploying to !DEPLOY_URL!
-set "SERVICE_HEADER="
-if not "!SERVICE!"=="" set "SERVICE_HEADER=-H "X-Service: !SERVICE!""
+echo Deploying to !DEPLOY_URL! (profile: !PROFILE!)
 for /f %%a in ('curl -s -o "!BODY_FILE!" -w "%%{http_code}" -X POST ^
     -H "Authorization: Bearer !AUTH_TOKEN!" ^
-    !SERVICE_HEADER! ^
-    -H "X-Deploy-Dir: !DEPLOY_DIR!" ^
+    -H "X-Profile: !PROFILE!" ^
     -F "file=@!TEMP_ZIP!" ^
     "!DEPLOY_URL!"') do set "HTTP_CODE=%%a"
 

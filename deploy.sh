@@ -16,7 +16,7 @@ fi
 source "$ENV_FILE"
 
 # Validate required variables
-for var in AUTH_TOKEN DEPLOY_URL DEPLOY_DIR; do
+for var in AUTH_TOKEN DEPLOY_URL PROFILE; do
     if [ -z "${!var:-}" ]; then
         echo "Error: $var not set in .env"
         exit 1
@@ -54,13 +54,10 @@ ZIP_SIZE=$(du -h "$TEMP_ZIP" | cut -f1)
 echo "✓ Created zip: $ZIP_SIZE"
 
 # Deploy
-echo "🚀 Deploying to $DEPLOY_URL"
-HEADERS=(-H "Authorization: Bearer $AUTH_TOKEN" -H "X-Deploy-Dir: $DEPLOY_DIR")
-if [ -n "${SERVICE:-}" ]; then
-    HEADERS+=(-H "X-Service: $SERVICE")
-fi
+echo "🚀 Deploying to $DEPLOY_URL (profile: $PROFILE)"
 RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-    "${HEADERS[@]}" \
+    -H "Authorization: Bearer $AUTH_TOKEN" \
+    -H "X-Profile: $PROFILE" \
     -F "file=@$TEMP_ZIP" \
     "$DEPLOY_URL")
 

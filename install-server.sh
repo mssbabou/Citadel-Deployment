@@ -11,7 +11,7 @@ set -e
 REPO="mssbabou/Citadel-Deployment"
 INSTALL_DIR="/opt/citadel"
 BINARY="$INSTALL_DIR/deploy-server"
-CONFIG="$INSTALL_DIR/config.txt"
+CONFIG="$INSTALL_DIR/config.toml"
 SERVICE_NAME="deploy-server.service"
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 
@@ -70,19 +70,24 @@ EOF
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 
-# Write config.txt only on first install — preserve existing token on updates
+# Write config.toml only on first install — preserve existing config on updates
 if [ ! -f "$CONFIG" ]; then
-    echo "==> Writing default config.txt (edit before starting)"
+    echo "==> Writing default config.toml (edit before starting)"
     cat > "$CONFIG" << EOF
-# Authentication token — change this before starting the service
-# Generate one with: openssl rand -base64 32
-token=your-secret-token-here
+[server]
+token = "your-secret-token-here"
+port = 9090
 
-# Port the server listens on
-port=9090
+# Define one or more deployment profiles.
+# Clients send X-Profile: <name> to target a profile.
+# All listed services are stopped before deploy and started after.
+
+[profiles.myapp]
+deploy_dir = "/opt/myapp"
+services = ["myapp.service"]
 EOF
     echo ""
-    echo "  !! Edit $CONFIG and set a strong token before continuing !!"
+    echo "  !! Edit $CONFIG — set a strong token and configure your profiles !!"
     echo "     Then run: sudo systemctl start $SERVICE_NAME"
     echo ""
 else

@@ -1,6 +1,6 @@
 using CitadelServer;
 
-var configPath = Path.Combine(AppContext.BaseDirectory, "config.txt");
+var configPath = Path.Combine(AppContext.BaseDirectory, "config.toml");
 
 if (!File.Exists(configPath))
 {

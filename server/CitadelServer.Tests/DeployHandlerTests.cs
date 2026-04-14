@@ -15,6 +15,7 @@ namespace CitadelServer.Tests;
 public class DeployHandlerTests : IAsyncLifetime
 {
     const string TestToken = "integ-test-token-citadel-xyz";
+    const string TestProfile = "test-profile";
 
     WebApplication? _app;
     HttpClient? _client;
@@ -25,7 +26,19 @@ public class DeployHandlerTests : IAsyncLifetime
         _deployDir = Directory.CreateTempSubdirectory("citadel_test_").FullName;
 
         var port = GetFreePort();
-        var config = new ServerConfig { Token = TestToken, Port = port };
+        var config = new ServerConfig
+        {
+            Token = TestToken,
+            Port = port,
+            Profiles = new Dictionary<string, ServerConfig.Profile>
+            {
+                [TestProfile] = new ServerConfig.Profile
+                {
+                    DeployDir = _deployDir,
+                    Services = ["test-svc"],
+                }
+            }
+        };
         _app = AppFactory.Create(config, $"http://127.0.0.1:{port}");
         await _app.StartAsync();
         _client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
@@ -56,13 +69,11 @@ public class DeployHandlerTests : IAsyncLifetime
     // Helpers
     // -------------------------------------------------------------------------
 
-    HttpRequestMessage DeployRequest(byte[] zipBytes, string? token = null, string? deployDir = null, string? service = "test-svc")
+    HttpRequestMessage DeployRequest(byte[] zipBytes, string? token = null, string? profile = null)
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token ?? TestToken);
-        req.Headers.Add("X-Deploy-Dir", deployDir ?? _deployDir!);
-        if (service != null)
-            req.Headers.Add("X-Service", service);
+        req.Headers.Add("X-Profile", profile ?? TestProfile);
 
         var content = new MultipartFormDataContent();
         var zipContent = new ByteArrayContent(zipBytes);
@@ -86,9 +97,6 @@ public class DeployHandlerTests : IAsyncLifetime
         }
         return ms.ToArray();
     }
-
-    static byte[] MakeZipWithEntry(string entryName, string content)
-        => MakeZip(new Dictionary<string, string> { [entryName] = content });
 
     void ClearDeployDir()
     {
@@ -123,10 +131,9 @@ public class DeployHandlerTests : IAsyncLifetime
     [Fact]
     public async Task MalformedAuthHeader_Returns401()
     {
-        // Missing "Bearer " prefix
         var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
         req.Headers.TryAddWithoutValidation("Authorization", TestToken);
-        req.Headers.Add("X-Deploy-Dir", _deployDir!);
+        req.Headers.Add("X-Profile", TestProfile);
         req.Content = new ByteArrayContent(MakeZip(new() { ["f.txt"] = "x" }));
         var r = await _client!.SendAsync(req);
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
@@ -153,6 +160,29 @@ public class DeployHandlerTests : IAsyncLifetime
     }
 
     // -------------------------------------------------------------------------
+    // Profile
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task MissingProfileHeader_Returns400()
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestToken);
+        req.Content = new ByteArrayContent(MakeZip(new() { ["f.txt"] = "x" }));
+        var r = await _client!.SendAsync(req);
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        Assert.Contains("X-Profile", await r.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task UnknownProfile_Returns400()
+    {
+        var r = await _client!.SendAsync(DeployRequest(MakeZip(new() { ["f.txt"] = "x" }), profile: "does-not-exist"));
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        Assert.Contains("unknown profile", await r.Content.ReadAsStringAsync());
+    }
+
+    // -------------------------------------------------------------------------
     // Invalid inputs
     // -------------------------------------------------------------------------
 
@@ -161,7 +191,7 @@ public class DeployHandlerTests : IAsyncLifetime
     {
         var r = await _client!.SendAsync(DeployRequest(System.Text.Encoding.UTF8.GetBytes("not a zip")));
         Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
-        Assert.Contains("zip", (await r.Content.ReadAsStringAsync()), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("zip", await r.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
     }
 
     // -------------------------------------------------------------------------
@@ -228,7 +258,6 @@ public class DeployHandlerTests : IAsyncLifetime
         var r = await _client!.SendAsync(DeployRequest(zip));
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
 
-        // Files should land at deployDir/index.html, NOT deployDir/myapp/index.html
         Assert.True(File.Exists(Path.Combine(_deployDir!, "index.html")));
         Assert.True(File.Exists(Path.Combine(_deployDir!, "src", "main.js")));
         Assert.False(Directory.Exists(Path.Combine(_deployDir!, "myapp")));
@@ -247,17 +276,5 @@ public class DeployHandlerTests : IAsyncLifetime
 
         Assert.False(File.Exists(Path.Combine(_deployDir!, "old.txt")));
         Assert.True(File.Exists(Path.Combine(_deployDir!, "new.txt")));
-    }
-
-    [Fact]
-    public async Task NoServiceHeader_DeploysWithoutRestart()
-    {
-        ClearDeployDir();
-        var zip = MakeZip(new() { ["index.html"] = "<h1>No service</h1>" });
-
-        // Pass service: null so no X-Service header is sent
-        var r = await _client!.SendAsync(DeployRequest(zip, service: null));
-        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
-        Assert.True(File.Exists(Path.Combine(_deployDir!, "index.html")));
     }
 }
