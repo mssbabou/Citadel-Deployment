@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "M+ypJz9cnNhBdES24P0Bs4Sct0php1EFWYmb014//vM=",
+  "Source": "deploy-server",
+  "BasePath": "_content/deploy-server",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}

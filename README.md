@@ -6,7 +6,7 @@ A cross-platform deployment system for managing service updates via HTTP. Deploy
 
 The Citadel Deployment System consists of three components:
 
-- **Deployment Server** (`deploy-server.py`) - Python HTTP server running on your deployment target (Linux)
+- **Deployment Server** (`server/CitadelServer`) - .NET 8 HTTP server running on your deployment target (Linux)
 - **Linux Client** (`deploy.sh`) - Bash script for deploying from Linux systems
 - **Windows Client** (`deploy.bat`) - Batch script for deploying from Windows systems
 
@@ -24,23 +24,24 @@ Systemd Service on target system
 
 ### 1. Server Setup (on target Linux server)
 
-Download the server script from the latest release:
+Download the server binary from the latest release:
 
 ```bash
-curl -LO https://github.com/mssbabou/citadel-deployment/releases/latest/download/deploy-server.py
+curl -LO https://github.com/mssbabou/citadel-deployment/releases/latest/download/deploy-server
+chmod +x deploy-server
 ```
 
-First run will create a `config.txt` in the same directory — edit it with your token:
+First run creates a `config.txt` in the same directory — edit it with your token:
 
 ```bash
-python3 deploy-server.py   # creates config.txt then exits
+./deploy-server   # creates config.txt then exits
 nano config.txt
 ```
 
 **Option A: Run as background service**
 
 ```bash
-sudo python3 deploy-server.py --install
+sudo ./deploy-server --install
 ```
 
 This will:
@@ -57,7 +58,7 @@ journalctl -u deploy-server.service -f
 **Option B: Run directly**
 
 ```bash
-python3 deploy-server.py
+./deploy-server
 ```
 
 Server will listen on `http://0.0.0.0:9090`
@@ -109,7 +110,7 @@ curl -LO https://github.com/mssbabou/citadel-deployment/releases/latest/download
 curl -LO https://github.com/mssbabou/citadel-deployment/releases/latest/download/.env.example
 chmod +x deploy.sh
 cp .env.example .env
-nano .env   # fill in AUTH_TOKEN, DEPLOY_URL, SERVICE, DEPLOY_DIR
+nano .env   # fill in AUTH_TOKEN, DEPLOY_URL, DEPLOY_DIR (SERVICE is optional)
 ```
 
 ```powershell
@@ -184,14 +185,22 @@ journalctl -u deploy-server.service -n 50
 
 ### Permission Denied on Server
 
-- Ensure Python script has execute permissions: `chmod +x deploy-server.py`
-- For `--install`, use sudo: `sudo python3 deploy-server.py --install`
+- Ensure the binary has execute permissions: `chmod +x deploy-server`
+- For `--install`, use sudo: `sudo ./deploy-server --install`
 
 ### Connection Refused
 
 - Verify server is running: `systemctl status deploy-server.service`
 - Check port: `netstat -tlnp | grep 9090`
 - Verify firewall rules allow connection
+
+## Building the Server
+
+```bash
+# Build self-contained single-file binary for Linux
+dotnet publish server/CitadelServer -r linux-x64 --self-contained -p:PublishSingleFile=true -c Release
+# Binary: server/CitadelServer/bin/Release/net8.0/linux-x64/publish/deploy-server
+```
 
 ## Configuration Reference
 
@@ -213,90 +222,56 @@ port=9090
 
 ```
 citadel-deployment/
-├── deploy-server.py         # Python HTTP server (deployment target)
-├── deploy.sh                # Bash client template
-├── deploy.bat               # Batch client template
-├── test_local_deployment.py # Manual local test script
-├── setup.sh                 # Development environment setup script
-├── config.txt               # Server configuration (generated on first run)
-├── config.txt.example       # Server configuration template
-├── .env.example             # Client authentication template
-├── .gitignore               # Git ignore rules
-├── requirements-test.txt    # Test dependencies
-├── README.md                # Full documentation
-├── QUICK_START.md           # Quick setup guide
-└── tests/                   # Integration and unit tests
-    ├── test_deployment.py   # Deployment tests
-    ├── conftest.py          # Pytest fixtures
-    └── README.md            # Test documentation
+├── server/                      # .NET 8 deployment server
+│   ├── CitadelServer.sln
+│   ├── CitadelServer/           # Server project
+│   │   ├── CitadelServer.csproj
+│   │   ├── Program.cs           # Entry point, config loading, --install
+│   │   ├── AppFactory.cs        # WebApplication builder (used by tests)
+│   │   ├── DeployHandler.cs     # POST /deploy handler
+│   │   └── ServerConfig.cs      # Config record + loader
+│   └── CitadelServer.Tests/     # xUnit integration tests
+│       ├── CitadelServer.Tests.csproj
+│       └── DeployHandlerTests.cs
+├── deploy.sh                    # Bash client template
+├── deploy.bat                   # Batch client template
+├── test_local_deployment.py     # Manual local test script
+├── setup.sh                     # Development environment setup script
+├── config.txt.example           # Server configuration template
+├── .env.example                 # Client authentication template
+├── .gitignore                   # Git ignore rules
+├── README.md                    # Full documentation
+└── QUICK_START.md               # Quick setup guide
 ```
 
 ## Testing
 
-The project includes comprehensive integration tests for the deployment server functionality. There are two ways to test:
+The project includes xUnit integration tests for the .NET deployment server. Tests start real server instances on dynamic ports — no mocking.
 
-### Setup (Virtual Environment)
+### Setup
 
-First-time setup - create and activate virtual environment:
+Requires the [.NET 8 SDK](https://dotnet.microsoft.com/download).
 
-```bash
-# Option 1: Automated setup
-chmod +x setup.sh
-./setup.sh
-
-# Option 2: Manual setup
-python3 -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# or .venv\Scripts\activate on Windows
-pip install -r requirements-test.txt
-```
-
-For future sessions, just activate the environment:
-
-```bash
-source .venv/bin/activate
-```
-
-### Quick Local Test (Manual)
-
-Test the server quickly with real HTTP requests:
-
-```bash
-# Terminal 1: Start the server
-python3 deploy-server.py
-
-# Terminal 2: Run local test (with venv activated)
-python3 test_local_deployment.py
-```
-
-This script:
-- Verifies the server is running
-- Tests authentication (correct and incorrect tokens)
-- Creates a test app zip and sends it to the server
-- Reports success/failure
-
-### Automated Tests (Pytest)
-
-Run all tests:
+### Run Tests
 
 ```bash
 # Run all tests
-pytest tests/ -v
+dotnet test server/CitadelServer.sln
 
-# Run with coverage report
-pytest tests/ --cov=. --cov-report=html
+# With verbose output
+dotnet test server/CitadelServer.sln --logger "console;verbosity=normal"
 ```
 
 Tests cover:
-- Configuration loading
-- Zip file validation and extraction
-- File handling and special characters
-- Directory replacement (deployment workflow)
-- Multipart form data parsing
-- Error handling for invalid/corrupt files
-- Large file handling
-
-See [tests/README.md](tests/README.md) for detailed information.
+- Authentication (no token, wrong token, malformed header)
+- Unknown endpoint → 404
+- Invalid zip → 400
+- Zip slip path traversal → 400
+- Absolute path in zip → 400
+- Valid flat zip deployment
+- Single root directory unwrapping
+- Deployment replacing existing files
+- Deployment without service header (no restart)
 
 ## License
 
