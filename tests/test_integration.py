@@ -137,9 +137,10 @@ class TestLiveServer(unittest.TestCase):
         """POST a zip to /deploy, return the Response."""
         headers = {
             "Authorization": f"Bearer {token or self.TOKEN}",
-            "X-Service": service,
             "X-Deploy-Dir": deploy_dir or self.deploy_dir,
         }
+        if service:
+            headers["X-Service"] = service
         return requests.post(
             f"{self.base_url}/deploy",
             headers=headers,
@@ -277,6 +278,13 @@ class TestLiveServer(unittest.TestCase):
 
         self.assertFalse(os.path.exists(os.path.join(self.deploy_dir, "old.txt")))
         self.assertTrue(os.path.exists(os.path.join(self.deploy_dir, "new.txt")))
+
+    def test_deploy_without_service_skips_restart(self):
+        """Deploying with no X-Service header should succeed without attempting systemctl."""
+        zip_bytes = _make_zip({"index.html": "<h1>No service</h1>"})
+        r = self._deploy(zip_bytes, service=None)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(os.path.exists(os.path.join(self.deploy_dir, "index.html")))
 
     def test_multipart_form_data_upload(self):
         """Verify the server correctly extracts the zip from multipart form data."""

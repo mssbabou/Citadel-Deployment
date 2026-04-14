@@ -93,7 +93,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # Get config from headers (sent by deploy.sh)
-        service = self.headers.get("X-Service", "nginx")
+        service = self.headers.get("X-Service", "")
         deploy_dir = self.headers.get("X-Deploy-Dir", "/var/www")
 
         try:
@@ -149,22 +149,24 @@ class Handler(BaseHTTPRequestHandler):
             if len(entries) == 1 and os.path.isdir(os.path.join(tmp_dir, entries[0])):
                 source = os.path.join(tmp_dir, entries[0])
 
-            # stop service (ignore errors if no permissions)
-            try:
-                subprocess.run(["systemctl", "stop", service], capture_output=True, timeout=5)
-            except Exception:
-                pass  # Ignore failures (no systemd, no permissions, etc.)
+            # stop service if specified (ignore errors if no permissions)
+            if service:
+                try:
+                    subprocess.run(["systemctl", "stop", service], capture_output=True, timeout=15)
+                except Exception:
+                    pass  # Ignore failures (no systemd, no permissions, etc.)
 
             # replace files
             if os.path.exists(deploy_dir):
                 shutil.rmtree(deploy_dir)
             shutil.copytree(source, deploy_dir)
 
-            # start service (ignore errors if no permissions)
-            try:
-                subprocess.run(["systemctl", "start", service], capture_output=True, timeout=5)
-            except Exception:
-                pass  # Ignore failures (no systemd, no permissions, etc.)
+            # start service if specified (ignore errors if no permissions)
+            if service:
+                try:
+                    subprocess.run(["systemctl", "start", service], capture_output=True, timeout=15)
+                except Exception:
+                    pass  # Ignore failures (no systemd, no permissions, etc.)
 
             # cleanup
             shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -173,10 +175,11 @@ class Handler(BaseHTTPRequestHandler):
 
         except Exception as e:
             # attempt to restart service on failure (ignore errors)
-            try:
-                subprocess.run(["systemctl", "start", service], capture_output=True, timeout=5)
-            except Exception:
-                pass
+            if service:
+                try:
+                    subprocess.run(["systemctl", "start", service], capture_output=True, timeout=15)
+                except Exception:
+                    pass
             self.respond(500, str(e))
 
     def respond(self, code, msg):
