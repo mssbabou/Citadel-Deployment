@@ -1,0 +1,20 @@
+# Citadel Deployment Server Configuration
+# Written to /opt/citadel/config.toml by install-server.sh. Edit before starting the service.
+#
+# Generate a strong token with: openssl rand -base64 32
+
+[server]
+token = "your-secret-token-here"
+port = 9090
+
+# Define one or more deployment profiles.
+# Clients send X-Profile: <name> to select which profile to use.
+# All services listed are stopped before deploy and started after.
+
+[profiles.myapp]
+deploy_dir = "/opt/myapp"
+services = ["myapp.service"]
+
+# [profiles.frontend]
+# deploy_dir = "/var/www/html"
+# services = ["nginx.service"]

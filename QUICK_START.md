@@ -2,27 +2,37 @@
 
 ## 5-Minute Server Setup
 
-### Step 1: Download Server Script
+### Step 1: Install the deploy server
 
 ```bash
-curl -LO https://github.com/mssbabou/citadel-deployment/releases/latest/download/deploy-server.py
+curl -fsSL https://github.com/mssbabou/Citadel-Deployment/releases/latest/download/install-server.sh | sudo bash
 ```
 
-### Step 2: Configure Token
+This will:
+- Download the latest `deploy-server` binary to `/opt/citadel/`
+- Create a systemd service and enable it on boot
+- Write a default `config.txt` and tell you to set your token
+
+Safe to re-run — running it again updates to the latest version without touching your config.
+
+### Step 2: Set your token
 
 ```bash
-# First run creates config.txt then exits
-python3 deploy-server.py
-
-# Generate a strong token and set it
+# Generate a strong token
 TOKEN=$(openssl rand -base64 32)
-echo "token=$TOKEN" > config.txt
-echo "port=9090" >> config.txt
-chmod 600 config.txt
-echo "Your token: $TOKEN"   # save this for your .env files
+sudo nano /opt/citadel/config.txt
+# Set: token=<your generated token>
+
+sudo systemctl start deploy-server.service
 ```
 
-### Step 3: Create App Service
+View logs:
+```bash
+journalctl -u deploy-server.service -f
+```
+
+### Step 3: Create your app's systemd service
+
 ```bash
 sudo nano /etc/systemd/system/app.service
 ```
@@ -52,102 +62,20 @@ sudo systemctl enable app.service
 sudo systemctl start app.service
 ```
 
-### Step 4: Start Deploy Server
-```bash
-# Run directly
-python3 deploy-server.py
-
-# Or install as service
-sudo python3 deploy-server.py --install
-```
-
-View logs:
-```bash
-journalctl -u deploy-server.service -f
-```
-
-
-
 ---
 
 ## Testing the Server
 
-### Setup Environment
-
-First, create a virtual environment (required on Arch Linux and other systems with externally-managed Python):
+### Run Automated Tests
 
 ```bash
-# Create virtual environment
-python3 -m venv .venv
-
-# Activate it
-source .venv/bin/activate
-```
-
-Or use the setup script:
-
-```bash
-chmod +x setup.sh
-./setup.sh
-```
-
-### Quick Manual Test
-
-In a new terminal, run:
-
-```bash
-# Make sure venv is activated
-source .venv/bin/activate
-
-python3 test_local_deployment.py
-```
-
-This tests:
-- Server connectivity
-- Authentication (correct and incorrect tokens)
-- Deployment with test payload
-
-### Automated Tests
-
-Run comprehensive test suite:
-
-```bash
-pip install -r requirements-test.txt
-pytest tests/ -v
-```
-
----
-
-### View Server Logs
-```bash
-journalctl -u deploy-server.service -f           # Real-time
-journalctl -u deploy-server.service -n 100       # Last 100 lines
-```
-
-### Check Service Status
-```bash
-systemctl status app.service
-systemctl restart app.service
-systemctl stop app.service
-systemctl start app.service
-```
-
-### Generate Strong Token
-```bash
-# Linux
-openssl rand -base64 32
-
-# macOS
-openssl rand -base64 32
-
-# Windows PowerShell
-[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-Random -Maximum 1000000000).ToString()))
+dotnet test server/CitadelServer.sln
 ```
 
 ### Test Connection
 ```bash
-curl -H "Authorization: Bearer your-token" https://deploy.example.com/deploy
-# Should return: "405 Method Not Allowed" (POST required)
+curl -s -o /dev/null -w "%{http_code}" -X POST -H "Authorization: Bearer wrong-token" https://deploy.example.com/deploy
+# Should return: 401 (server is reachable and auth is working)
 ```
 
 ---
@@ -167,21 +95,28 @@ sudo systemctl start deploy-server.service
 ```
 
 ### "unauthorized"
-Check that client token matches `config.txt`:
+Check that client token matches the server config:
 ```bash
-cat config.txt | grep token
+sudo cat /opt/citadel/config.txt
 ```
 
-### Service not restarting
+### Service not restarting after deploy
 ```bash
-# Check service file syntax
-sudo systemctl status app.service
-
 # Check service logs
 journalctl -u app.service -n 50
 
 # Try manual restart
 sudo systemctl restart app.service
+```
+
+---
+
+## Updating the Server
+
+Re-run the installer — it fetches the latest binary and restarts the service, config is preserved:
+
+```bash
+curl -fsSL https://github.com/mssbabou/Citadel-Deployment/releases/latest/download/install-server.sh | sudo bash
 ```
 
 ---
@@ -197,4 +132,4 @@ sudo systemctl restart app.service
 - [ ] Monitoring/alerting set up for service failures
 - [ ] Token rotated regularly
 - [ ] Tested rollback procedure
-- [ ] config.txt file has restricted permissions (chmod 600)
+- [ ] config.txt file has restricted permissions (`sudo chmod 600 /opt/citadel/config.txt`)
