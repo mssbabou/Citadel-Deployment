@@ -2,7 +2,7 @@ name: Test and Release
 
 on:
   push:
-    branches: [dotnet-server]
+    branches: [master]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
