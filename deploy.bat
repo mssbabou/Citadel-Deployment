@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 REM Deploy script for Citadel deployment system
@@ -35,22 +36,33 @@ REM SOURCE: CLI arg overrides .env SOURCE; fallback to current directory
 if not "%~1"=="" set "SOURCE=%~1"
 if "!SOURCE!"=="" set "SOURCE=."
 
+REM Strip trailing backslash if present
+if "!SOURCE:~-1!"=="\" set "SOURCE=!SOURCE:~0,-1!"
+
 REM Validate source exists
 if not exist "!SOURCE!" (
     echo Error: source path does not exist: !SOURCE!
     exit /b 1
 )
 
+REM TEMP_DIR: use .env value if set, otherwise use system %TEMP%
+if "!TEMP_DIR!"=="" set "TEMP_DIR=%TEMP%"
+
 REM Create temp zip filename
-for /f %%a in ('powershell -Command "[System.IO.Path]::GetTempPath() + 'deploy_' + [System.IO.Path]::GetRandomFileName().Split('.')[0] + '.zip'"') do set "TEMP_ZIP=%%a"
+for /f %%a in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString(\"N\").Substring(0,8)"') do set "_rand=%%a"
+set "TEMP_ZIP=!TEMP_DIR!\deploy_!_rand!.zip"
 
 REM Zip the source
 if "!SOURCE:~-4!"==".zip" (
-    echo Copying zip file: !SOURCE!
+    echo 📦 Copying zip file: !SOURCE!
     copy "!SOURCE!" "!TEMP_ZIP!" >nul
 ) else (
-    echo Zipping: !SOURCE!
-    powershell -Command "Compress-Archive -Path '!SOURCE!\*' -DestinationPath '!TEMP_ZIP!' -Force"
+    if exist "!SOURCE!\" (
+        echo 📦 Zipping directory: !SOURCE!
+    ) else (
+        echo 📦 Zipping file: !SOURCE!
+    )
+    powershell -NoProfile -Command "Compress-Archive -Path '!SOURCE!' -DestinationPath '!TEMP_ZIP!' -Force"
 )
 
 if not exist "!TEMP_ZIP!" (
@@ -59,12 +71,12 @@ if not exist "!TEMP_ZIP!" (
 )
 
 REM Get zip size
-for /f %%a in ('powershell -Command "'{0:N2}' -f ((Get-Item '!TEMP_ZIP!').length / 1MB) + ' MB'"') do set "ZIP_SIZE=%%a"
-echo Created zip: !ZIP_SIZE!
+for /f %%a in ('powershell -NoProfile -Command "'{0:N2} MB' -f ((Get-Item '!TEMP_ZIP!').Length / 1MB)"') do set "ZIP_SIZE=%%a"
+echo ✓ Created zip: !ZIP_SIZE!
 
 REM Deploy - write body to temp file, capture HTTP status code
 set "BODY_FILE=%TEMP%\citadel_body_%RANDOM%.txt"
-echo Deploying to !DEPLOY_URL! (profile: !PROFILE!)
+echo 🚀 Deploying to !DEPLOY_URL! (profile: !PROFILE!)
 for /f %%a in ('curl -s -o "!BODY_FILE!" -w "%%{http_code}" -X POST ^
     -H "Authorization: Bearer !AUTH_TOKEN!" ^
     -H "X-Profile: !PROFILE!" ^
@@ -79,11 +91,11 @@ if exist "!TEMP_ZIP!" del /q "!TEMP_ZIP!"
 
 echo.
 if "!HTTP_CODE!"=="200" (
-    echo Deploy successful!
-    echo Response: !BODY!
+    echo ✓ Deploy successful!
+    echo   Response: !BODY!
     exit /b 0
 ) else (
-    echo Deploy failed with HTTP !HTTP_CODE!
-    echo Response: !BODY!
+    echo ✗ Deploy failed with HTTP !HTTP_CODE!
+    echo   Response: !BODY!
     exit /b 1
 )
