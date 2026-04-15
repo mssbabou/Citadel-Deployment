@@ -29,7 +29,7 @@ public class DeployHandlerTests : IAsyncLifetime
         {
             Token = TestToken,
             Port = port,
-            Profiles = new Dictionary<string, ServerConfig.Profile>
+            Profiles = new Dictionary<string, ServerConfig.Profile>(StringComparer.OrdinalIgnoreCase)
             {
                 [TestProfile] = new ServerConfig.Profile
                 {
@@ -238,7 +238,7 @@ public class DeployHandlerTests : IAsyncLifetime
 
         var r = await _client!.SendAsync(DeployRequest(zip));
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
-        Assert.Equal("deployed", await r.Content.ReadAsStringAsync());
+        Assert.EndsWith("OK\n", await r.Content.ReadAsStringAsync());
 
         Assert.True(File.Exists(Path.Combine(_deployDir!, "index.html")));
         Assert.True(File.Exists(Path.Combine(_deployDir!, "app.js")));
@@ -275,5 +275,85 @@ public class DeployHandlerTests : IAsyncLifetime
 
         Assert.False(File.Exists(Path.Combine(_deployDir!, "old.txt")));
         Assert.True(File.Exists(Path.Combine(_deployDir!, "new.txt")));
+    }
+
+    // -------------------------------------------------------------------------
+    // Additional coverage
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ProfileLookup_CaseInsensitive()
+    {
+        // ServerConfig.Load uses OrdinalIgnoreCase; verify the deploy endpoint honours it.
+        var r = await _client!.SendAsync(DeployRequest(MakeZip(new() { ["f.txt"] = "x" }), profile: TestProfile.ToUpperInvariant()));
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+    }
+
+    [Fact]
+    public async Task ZipWithMultipleTopLevelDirs_DeploysFlat()
+    {
+        // Two top-level dirs → no single-root unwrap; both dirs land directly in deploy_dir.
+        ClearDeployDir();
+        var zip = MakeZip(new()
+        {
+            ["dir1/a.txt"] = "a",
+            ["dir2/b.txt"] = "b",
+        });
+
+        var r = await _client!.SendAsync(DeployRequest(zip));
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+
+        Assert.True(File.Exists(Path.Combine(_deployDir!, "dir1", "a.txt")));
+        Assert.True(File.Exists(Path.Combine(_deployDir!, "dir2", "b.txt")));
+    }
+
+    [Fact]
+    public async Task RawBodyDeploy_DeploysFiles()
+    {
+        // POST raw zip bytes without multipart wrapper — exercises the non-multipart code path.
+        ClearDeployDir();
+        var zip = MakeZip(new() { ["raw.txt"] = "raw deploy" });
+
+        var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestToken);
+        req.Headers.Add("X-Profile", TestProfile);
+        req.Content = new ByteArrayContent(zip);
+        req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+
+        var r = await _client!.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.True(File.Exists(Path.Combine(_deployDir!, "raw.txt")));
+    }
+
+    [Fact]
+    public async Task EmptyZip_ClearsDeployDir()
+    {
+        // An empty zip is valid; deploying it wipes the existing deploy dir.
+        File.WriteAllText(Path.Combine(_deployDir!, "existing.txt"), "old");
+
+        var zip = MakeZip(new());
+
+        var r = await _client!.SendAsync(DeployRequest(zip));
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.False(File.Exists(Path.Combine(_deployDir!, "existing.txt")));
+    }
+
+    [Fact]
+    public async Task MultipartWithNoFilename_Returns400()
+    {
+        // Multipart part missing filename= → ExtractFromMultipart returns null →
+        // original multipart bytes written to tmpZip → not a valid zip → 400.
+        var content = new MultipartFormDataContent();
+        var zipContent = new ByteArrayContent(MakeZip(new() { ["f.txt"] = "x" }));
+        zipContent.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+        content.Add(zipContent, "file"); // 2-arg overload: no filename= in Content-Disposition
+
+        var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestToken);
+        req.Headers.Add("X-Profile", TestProfile);
+        req.Content = content;
+
+        var r = await _client!.SendAsync(req);
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
     }
 }

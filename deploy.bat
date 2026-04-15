@@ -24,17 +24,16 @@ for /f "usebackq tokens=1,* delims==" %%a in ("!ENV_FILE!") do (
     )
 )
 
+REM CLI arg overrides SOURCE from .env
+if not "%~1"=="" set "SOURCE=%~1"
+
 REM Validate required variables
-for %%v in (AUTH_TOKEN DEPLOY_URL PROFILE) do (
+for %%v in (AUTH_TOKEN DEPLOY_URL PROFILE SOURCE) do (
     if "!%%v!"=="" (
         echo Error: %%v not set in .env
         exit /b 1
     )
 )
-
-REM SOURCE: CLI arg overrides .env SOURCE; fallback to current directory
-if not "%~1"=="" set "SOURCE=%~1"
-if "!SOURCE!"=="" set "SOURCE=."
 
 REM Strip trailing backslash if present
 if "!SOURCE:~-1!"=="\" set "SOURCE=!SOURCE:~0,-1!"
@@ -74,28 +73,30 @@ REM Get zip size
 for /f %%a in ('powershell -NoProfile -Command "'{0:N2} MB' -f ((Get-Item '!TEMP_ZIP!').Length / 1MB)"') do set "ZIP_SIZE=%%a"
 echo ✓ Created zip: !ZIP_SIZE!
 
-REM Deploy - write body to temp file, capture HTTP status code
-set "BODY_FILE=%TEMP%\citadel_body_%RANDOM%.txt"
+REM Deploy — write streaming response to temp file, then display
+set "RESP_FILE=%TEMP%\citadel_resp_%RANDOM%.txt"
 echo 🚀 Deploying to !DEPLOY_URL! (profile: !PROFILE!)
-for /f %%a in ('curl -s -o "!BODY_FILE!" -w "%%{http_code}" -X POST ^
+curl -s --no-buffer -X POST ^
     -H "Authorization: Bearer !AUTH_TOKEN!" ^
     -H "X-Profile: !PROFILE!" ^
     -F "file=@!TEMP_ZIP!" ^
-    "!DEPLOY_URL!"') do set "HTTP_CODE=%%a"
+    "!DEPLOY_URL!" > "!RESP_FILE!"
 
-set /p BODY=<"!BODY_FILE!"
-del /q "!BODY_FILE!" 2>nul
+type "!RESP_FILE!"
+echo.
 
 REM Clean up temp zip
 if exist "!TEMP_ZIP!" del /q "!TEMP_ZIP!"
 
-echo.
-if "!HTTP_CODE!"=="200" (
-    echo ✓ Deploy successful!
-    echo   Response: !BODY!
+REM Check last line of response for OK
+set "LAST_LINE="
+for /f "tokens=*" %%l in ("!RESP_FILE!") do set "LAST_LINE=%%l"
+del /q "!RESP_FILE!" 2>nul
+
+if "!LAST_LINE!"=="OK" (
+    echo ✓ Done
     exit /b 0
 ) else (
-    echo ✗ Deploy failed with HTTP !HTTP_CODE!
-    echo   Response: !BODY!
+    echo ✗ Deploy failed
     exit /b 1
 )

@@ -14,7 +14,9 @@ port = 9090
 [profiles.myapp]
 deploy_dir = "/opt/myapp"
 services = ["myapp.service"]
+# post_update_command = "npm install --omit=dev"   # optional: runs after files replaced, before services start
 
 # [profiles.frontend]
 # deploy_dir = "/var/www/html"
 # services = ["nginx.service"]
+# post_update_command = "systemctl reload nginx"

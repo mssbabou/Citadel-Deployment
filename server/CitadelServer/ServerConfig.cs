@@ -13,6 +13,7 @@ public sealed class ServerConfig
     {
         public string DeployDir { get; init; } = "";
         public string[] Services { get; init; } = [];
+        public string PostUpdateCommand { get; init; } = "";
     }
 
     public static ServerConfig Load(string path)
@@ -44,8 +45,9 @@ public sealed class ServerConfig
             var services = profileTable.TryGetValue("services", out var svcObj) && svcObj is TomlArray svcArr
                 ? svcArr.OfType<string>().ToArray()
                 : [];
+            var postUpdateCommand = profileTable.TryGetValue("post_update_command", out var puc) ? puc.ToString() ?? "" : "";
 
-            profiles[name] = new Profile { DeployDir = deployDir, Services = services };
+            profiles[name] = new Profile { DeployDir = deployDir, Services = services, PostUpdateCommand = postUpdateCommand };
         }
 
         return new ServerConfig { Token = token, Port = port, Profiles = profiles };

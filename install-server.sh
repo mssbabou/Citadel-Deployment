@@ -39,15 +39,31 @@ fi
 echo "==> Creating install directory: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
+# Ensure unzip is available
+if ! command -v unzip &>/dev/null; then
+    apt-get install -y unzip 2>/dev/null || yum install -y unzip 2>/dev/null || true
+fi
+
+# Ensure .NET 10 runtime is available
+if ! command -v dotnet &>/dev/null || ! dotnet --list-runtimes 2>/dev/null | grep -q "^Microsoft.NETCore.App 10\."; then
+    echo "==> Installing .NET 10 runtime"
+    curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+    bash /tmp/dotnet-install.sh --channel 10.0 --runtime dotnet --install-dir /usr/local/dotnet
+    rm /tmp/dotnet-install.sh
+    ln -sf /usr/local/dotnet/dotnet /usr/local/bin/dotnet 2>/dev/null || true
+fi
+
 # Stop existing service if running (ignore errors if not installed yet)
 if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     echo "==> Stopping existing service"
     systemctl stop "$SERVICE_NAME"
 fi
 
-echo "==> Downloading latest deploy-server binary"
-curl -fsSL "https://github.com/$REPO/releases/latest/download/deploy-server" -o "$BINARY"
+echo "==> Downloading latest deploy-server package"
+curl -fsSL "https://github.com/$REPO/releases/latest/download/deploy-server.zip" -o /tmp/deploy-server.zip
+unzip -o /tmp/deploy-server.zip -d "$INSTALL_DIR"
 chmod +x "$BINARY"
+rm /tmp/deploy-server.zip
 
 echo "==> Writing systemd service"
 cat > "$SERVICE_PATH" << EOF

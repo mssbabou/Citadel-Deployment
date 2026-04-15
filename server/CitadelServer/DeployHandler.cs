@@ -33,106 +33,137 @@ public static class DeployHandler
         var deployDir = profile.DeployDir;
         var services = profile.Services;
 
-        string? tmpZip = null;
-        string? tmpDir = null;
+        // --- Read body ---
+        using var ms = new MemoryStream();
+        await ctx.Request.Body.CopyToAsync(ms);
+        var body = ms.ToArray();
+
+        // --- Extract from multipart/form-data ---
+        var contentType = ctx.Request.ContentType ?? "";
+        if (contentType.Contains("multipart/form-data", StringComparison.OrdinalIgnoreCase))
+        {
+            var extracted = ExtractFromMultipart(body, contentType);
+            if (extracted == null)
+            {
+                await Respond(ctx, 400, "no file found in multipart body");
+                return;
+            }
+            body = extracted;
+        }
+
+        // --- Write and validate temp zip ---
+        var tmpZip = Path.Combine(Path.GetTempPath(), $"citadel_{Guid.NewGuid():N}.zip");
+        await File.WriteAllBytesAsync(tmpZip, body);
+
+        if (!IsValidZip(tmpZip))
+        {
+            File.Delete(tmpZip);
+            await Respond(ctx, 400, "not a valid zip");
+            return;
+        }
+
+        // --- Zip slip validation + extraction ---
+        var tmpDir = Directory.CreateTempSubdirectory("citadel_").FullName;
+        var realTmpDir = Path.GetFullPath(tmpDir);
+        string? unsafeEntry = null;
+
+        await using (var archive = await ZipFile.OpenReadAsync(tmpZip))
+        {
+            foreach (var entry in archive.Entries)
+            {
+                if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\'))
+                    continue;
+
+                var entryPath = Path.GetFullPath(Path.Combine(tmpDir, entry.FullName));
+                if (!entryPath.StartsWith(realTmpDir + Path.DirectorySeparatorChar))
+                {
+                    unsafeEntry = entry.FullName;
+                    break;
+                }
+            }
+
+            if (unsafeEntry == null)
+                await archive.ExtractToDirectoryAsync(tmpDir, overwriteFiles: true);
+        }
+
+        File.Delete(tmpZip);
+
+        if (unsafeEntry != null)
+        {
+            Directory.Delete(tmpDir, recursive: true);
+            await Respond(ctx, 400, "unsafe path in zip");
+            return;
+        }
+
+        // --- Single root dir unwrapping ---
+        var entries = Directory.GetFileSystemEntries(tmpDir);
+        var source = tmpDir;
+        if (entries.Length == 1 && Directory.Exists(entries[0]))
+            source = entries[0];
+
+        // -----------------------------------------------------------------------
+        // All validation done. Stream deploy progress from here on.
+        // HTTP status is 200; errors are reported as "ERROR: ..." lines.
+        // -----------------------------------------------------------------------
+        ctx.Response.StatusCode = 200;
+        ctx.Response.ContentType = "text/plain; charset=utf-8";
+
+        async Task Log(string line)
+        {
+            await ctx.Response.WriteAsync(line + "\n");
+            await ctx.Response.Body.FlushAsync();
+        }
 
         try
         {
-            // --- Read body ---
-            using var ms = new MemoryStream();
-            await ctx.Request.Body.CopyToAsync(ms);
-            var body = ms.ToArray();
-
-            // --- Extract from multipart/form-data ---
-            var contentType = ctx.Request.ContentType ?? "";
-            if (contentType.Contains("multipart/form-data", StringComparison.OrdinalIgnoreCase))
-            {
-                var extracted = ExtractFromMultipart(body, contentType);
-                if (extracted != null)
-                    body = extracted;
-            }
-
-            // --- Write temp zip ---
-            tmpZip = Path.Combine(Path.GetTempPath(), $"citadel_{Guid.NewGuid():N}.zip");
-            await File.WriteAllBytesAsync(tmpZip, body);
-
-            if (!IsValidZip(tmpZip))
-            {
-                File.Delete(tmpZip);
-                tmpZip = null;
-                await Respond(ctx, 400, "not a valid zip");
-                return;
-            }
-
-            // --- Zip slip validation (check all paths before extracting) ---
-            tmpDir = Directory.CreateTempSubdirectory("citadel_").FullName;
-            var realTmpDir = Path.GetFullPath(tmpDir);
-            string? unsafeEntry = null;
-
-            await using (var archive = await ZipFile.OpenReadAsync(tmpZip))
-            {
-                foreach (var entry in archive.Entries)
-                {
-                    if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\'))
-                        continue;
-
-                    var entryPath = Path.GetFullPath(Path.Combine(tmpDir, entry.FullName));
-                    if (!entryPath.StartsWith(realTmpDir + Path.DirectorySeparatorChar))
-                    {
-                        unsafeEntry = entry.FullName;
-                        break;
-                    }
-                }
-
-                if (unsafeEntry == null)
-                    await archive.ExtractToDirectoryAsync(tmpDir, overwriteFiles: true);
-            }
-
-            File.Delete(tmpZip);
-            tmpZip = null;
-
-            if (unsafeEntry != null)
-            {
-                await Respond(ctx, 400, "unsafe path in zip");
-                return;
-            }
-
-            // --- Single root dir unwrapping ---
-            var entries = Directory.GetFileSystemEntries(tmpDir);
-            var source = tmpDir;
-            if (entries.Length == 1 && Directory.Exists(entries[0]))
-                source = entries[0];
-
             // --- Stop services ---
             foreach (var svc in services)
-                RunSystemctl("stop", svc);
+            {
+                var ok = RunSystemctl("stop", svc);
+                await Log($"Stopping {svc}: {(ok ? "ok" : "failed")}");
+            }
 
             // --- Replace files ---
             if (Directory.Exists(deployDir))
                 Directory.Delete(deployDir, recursive: true);
             CopyDirectory(source, deployDir);
+            await Log("Replacing files: ok");
+
+            // --- Post-update command ---
+            if (!string.IsNullOrEmpty(profile.PostUpdateCommand))
+            {
+                await Log($"Running post-update: {profile.PostUpdateCommand}");
+                var (cmdOk, cmdOutput) = await RunCommand(profile.PostUpdateCommand, deployDir);
+                if (!string.IsNullOrEmpty(cmdOutput))
+                    foreach (var line in cmdOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                        await Log($"  {line.TrimEnd()}");
+                if (!cmdOk)
+                {
+                    await Log("ERROR: post-update command failed");
+                    foreach (var svc in services)
+                        RunSystemctl("start", svc);
+                    return;
+                }
+            }
 
             // --- Start services ---
             foreach (var svc in services)
-                RunSystemctl("start", svc);
+            {
+                var ok = RunSystemctl("start", svc);
+                await Log($"Starting {svc}: {(ok ? "ok" : "failed")}");
+            }
 
-            await Respond(ctx, 200, "deployed");
+            await Log("OK");
         }
         catch (Exception ex)
         {
-            // Recovery: attempt to restart all services even on failure
+            try { await Log($"ERROR: {ex.Message}"); } catch { }
             foreach (var svc in services)
                 RunSystemctl("start", svc);
-
-            await Respond(ctx, 500, ex.Message);
         }
         finally
         {
-            if (tmpZip != null && File.Exists(tmpZip))
-                try { File.Delete(tmpZip); } catch { }
-
-            if (tmpDir != null && Directory.Exists(tmpDir))
-                try { Directory.Delete(tmpDir, recursive: true); } catch { }
+            try { Directory.Delete(tmpDir, recursive: true); } catch { }
         }
     }
 
@@ -229,7 +260,7 @@ public static class DeployHandler
         return -1;
     }
 
-    static void RunSystemctl(string command, string service)
+    static bool RunSystemctl(string command, string service)
     {
         try
         {
@@ -244,10 +275,46 @@ public static class DeployHandler
             };
             proc.Start();
             proc.WaitForExit(TimeSpan.FromSeconds(15));
+            return proc.HasExited && proc.ExitCode == 0;
         }
         catch
         {
-            // Ignore: no systemd, no permissions, timeout, etc.
+            return false;
+        }
+    }
+
+    static async Task<(bool Success, string Output)> RunCommand(string command, string workingDir)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("/bin/sh")
+            {
+                ArgumentList = { "-c", command },
+                WorkingDirectory = workingDir,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi)!;
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+            var stderrTask = proc.StandardError.ReadToEndAsync();
+
+            var exited = await Task.WhenAny(
+                Task.WhenAll(stdoutTask, stderrTask, proc.WaitForExitAsync()),
+                Task.Delay(TimeSpan.FromSeconds(60)));
+
+            if (!proc.HasExited)
+            {
+                proc.Kill(entireProcessTree: true);
+                return (false, "timed out after 60s");
+            }
+
+            var output = ((await stdoutTask) + (await stderrTask)).Trim();
+            return (proc.ExitCode == 0, output);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
         }
     }
 

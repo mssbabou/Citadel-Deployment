@@ -15,16 +15,17 @@ fi
 
 source "$ENV_FILE"
 
+# CLI arg overrides SOURCE from .env
+if [ -n "${1:-}" ]; then SOURCE="$1"; fi
+
 # Validate required variables
-for var in AUTH_TOKEN DEPLOY_URL PROFILE; do
+for var in AUTH_TOKEN DEPLOY_URL PROFILE SOURCE; do
     if [ -z "${!var:-}" ]; then
         echo "Error: $var not set in .env"
         exit 1
     fi
 done
 
-# SOURCE: CLI arg → SOURCE from .env → current directory
-SOURCE="${1:-${SOURCE:-.}}"
 TEMP_DIR="${TEMP_DIR:-/tmp}"
 
 # Validate source exists
@@ -33,10 +34,11 @@ if [ ! -e "$SOURCE" ]; then
     exit 1
 fi
 
-# Create temp zip
+# Create temp zip and response file
 TEMP_ZIP=$(mktemp --suffix=.zip --tmpdir="$TEMP_DIR")
 rm -f "$TEMP_ZIP"   # zip won't overwrite an existing file cleanly
-trap "rm -f $TEMP_ZIP" EXIT
+RESP_FILE=$(mktemp)
+trap "rm -f \"$TEMP_ZIP\" \"$RESP_FILE\"" EXIT
 
 # Zip the source
 if [[ "$SOURCE" == *.zip ]]; then
@@ -53,22 +55,18 @@ fi
 ZIP_SIZE=$(du -h "$TEMP_ZIP" | cut -f1)
 echo "✓ Created zip: $ZIP_SIZE"
 
-# Deploy
+# Deploy — stream progress lines as they arrive
 echo "🚀 Deploying to $DEPLOY_URL (profile: $PROFILE)"
-RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+curl -s --no-buffer -X POST \
     -H "Authorization: Bearer $AUTH_TOKEN" \
     -H "X-Profile: $PROFILE" \
     -F "file=@$TEMP_ZIP" \
-    "$DEPLOY_URL")
+    "$DEPLOY_URL" | tee "$RESP_FILE"
+echo ""
 
-HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-BODY=$(echo "$RESPONSE" | head -n-1)
-
-if [ "$HTTP_CODE" = "200" ]; then
-    echo "✓ Deploy successful!"
-    echo "  Response: $BODY"
+LAST_LINE=$(tail -n1 "$RESP_FILE")
+if [ "$LAST_LINE" = "OK" ]; then
+    echo "✓ Done"
 else
-    echo "✗ Deploy failed with HTTP $HTTP_CODE"
-    echo "  Response: $BODY"
     exit 1
 fi
