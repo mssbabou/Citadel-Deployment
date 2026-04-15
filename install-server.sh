@@ -75,6 +75,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
+Environment=DOTNET_ROOT=/usr/local/dotnet
 ExecStart=$BINARY
 Restart=on-failure
 RestartSec=10
