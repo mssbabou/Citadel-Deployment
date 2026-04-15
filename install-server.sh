@@ -48,7 +48,7 @@ fi
 if ! command -v dotnet &>/dev/null || ! dotnet --list-runtimes 2>/dev/null | grep -q "^Microsoft.NETCore.App 10\."; then
     echo "==> Installing .NET 10 runtime"
     curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-    bash /tmp/dotnet-install.sh --channel 10.0 --runtime dotnet --install-dir /usr/local/dotnet
+    bash /tmp/dotnet-install.sh --channel 10.0 --runtime aspnetcore --install-dir /usr/local/dotnet
     rm /tmp/dotnet-install.sh
     ln -sf /usr/local/dotnet/dotnet /usr/local/bin/dotnet 2>/dev/null || true
 fi
