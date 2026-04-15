@@ -55,10 +55,13 @@ fi
 ZIP_SIZE=$(du -h "$TEMP_ZIP" | cut -f1)
 echo "✓ Created zip: $ZIP_SIZE"
 
+# Sign the zip with HMAC-SHA256
+SIG=$(openssl dgst -sha256 -hmac "$AUTH_TOKEN" -binary "$TEMP_ZIP" | xxd -p -c 256)
+
 # Deploy — stream progress lines as they arrive
 echo "🚀 Deploying to $DEPLOY_URL (profile: $PROFILE)"
 curl -s --no-buffer -X POST \
-    -H "Authorization: Bearer $AUTH_TOKEN" \
+    -H "X-Signature: $SIG" \
     -H "X-Profile: $PROFILE" \
     -F "file=@$TEMP_ZIP" \
     "$DEPLOY_URL" | tee "$RESP_FILE"

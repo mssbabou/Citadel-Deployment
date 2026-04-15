@@ -73,11 +73,14 @@ REM Get zip size
 for /f %%a in ('powershell -NoProfile -Command "'{0:N2} MB' -f ((Get-Item '!TEMP_ZIP!').Length / 1MB)"') do set "ZIP_SIZE=%%a"
 echo ✓ Created zip: !ZIP_SIZE!
 
+REM Sign the zip with HMAC-SHA256
+for /f "delims=" %%S in ('powershell -NoProfile -Command "$h=[System.Security.Cryptography.HMACSHA256]::new([System.Text.Encoding]::UTF8.GetBytes('!AUTH_TOKEN!')); [BitConverter]::ToString($h.ComputeHash([IO.File]::ReadAllBytes('!TEMP_ZIP!'))).Replace('-','').ToLower()"') do set "SIG=%%S"
+
 REM Deploy — write streaming response to temp file, then display
 set "RESP_FILE=%TEMP%\citadel_resp_%RANDOM%.txt"
 echo 🚀 Deploying to !DEPLOY_URL! (profile: !PROFILE!)
 curl -s --no-buffer -X POST ^
-    -H "Authorization: Bearer !AUTH_TOKEN!" ^
+    -H "X-Signature: !SIG!" ^
     -H "X-Profile: !PROFILE!" ^
     -F "file=@!TEMP_ZIP!" ^
     "!DEPLOY_URL!" > "!RESP_FILE!"

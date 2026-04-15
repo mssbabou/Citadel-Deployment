@@ -8,15 +8,6 @@ public static class DeployHandler
 {
     public static async Task HandleAsync(HttpContext ctx, ServerConfig config)
     {
-        // --- Auth ---
-        var authHeader = ctx.Request.Headers.Authorization.ToString();
-        var expected = $"Bearer {config.Token}";
-        if (!ConstantTimeEquals(authHeader, expected))
-        {
-            await Respond(ctx, 401, "unauthorized");
-            return;
-        }
-
         // --- Profile lookup ---
         var profileName = ctx.Request.Headers["X-Profile"].FirstOrDefault() ?? "";
         if (string.IsNullOrEmpty(profileName))
@@ -49,6 +40,30 @@ public static class DeployHandler
                 return;
             }
             body = extracted;
+        }
+
+        // --- Auth: HMAC-SHA256 signature over zip bytes ---
+        var sigHeader = ctx.Request.Headers["X-Signature"].ToString();
+        if (string.IsNullOrEmpty(sigHeader))
+        {
+            await Respond(ctx, 401, "unauthorized");
+            return;
+        }
+        try
+        {
+            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(config.Token));
+            var expectedSig = hmac.ComputeHash(body);
+            var actualSig = Convert.FromHexString(sigHeader);
+            if (!CryptographicOperations.FixedTimeEquals(expectedSig, actualSig))
+            {
+                await Respond(ctx, 401, "unauthorized");
+                return;
+            }
+        }
+        catch (FormatException)
+        {
+            await Respond(ctx, 401, "unauthorized");
+            return;
         }
 
         // --- Write and validate temp zip ---
@@ -176,19 +191,6 @@ public static class DeployHandler
         ctx.Response.StatusCode = status;
         ctx.Response.ContentType = "text/plain";
         return ctx.Response.WriteAsync(message);
-    }
-
-    static bool ConstantTimeEquals(string a, string b)
-    {
-        var aBytes = Encoding.UTF8.GetBytes(a);
-        var bBytes = Encoding.UTF8.GetBytes(b);
-        int len = Math.Max(aBytes.Length, bBytes.Length);
-        var aPadded = new byte[len];
-        var bPadded = new byte[len];
-        aBytes.CopyTo(aPadded, 0);
-        bBytes.CopyTo(bPadded, 0);
-        return CryptographicOperations.FixedTimeEquals(aPadded, bPadded)
-               && aBytes.Length == bBytes.Length;
     }
 
     static bool IsValidZip(string path)

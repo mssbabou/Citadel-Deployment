@@ -2,6 +2,8 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Xunit;
 
@@ -68,16 +70,22 @@ public class DeployHandlerTests : IAsyncLifetime
     // Helpers
     // -------------------------------------------------------------------------
 
+    static string ComputeSignature(byte[] body, string token)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(hmac.ComputeHash(body)).ToLowerInvariant();
+    }
+
     HttpRequestMessage DeployRequest(byte[] zipBytes, string? token = null, string? profile = null)
     {
-        var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token ?? TestToken);
-        req.Headers.Add("X-Profile", profile ?? TestProfile);
-
         var content = new MultipartFormDataContent();
         var zipContent = new ByteArrayContent(zipBytes);
         zipContent.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
         content.Add(zipContent, "file", "app.zip");
+
+        var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
+        req.Headers.Add("X-Signature", ComputeSignature(zipBytes, token ?? TestToken));
+        req.Headers.Add("X-Profile", profile ?? TestProfile);
         req.Content = content;
         return req;
     }
@@ -112,9 +120,10 @@ public class DeployHandlerTests : IAsyncLifetime
     // -------------------------------------------------------------------------
 
     [Fact]
-    public async Task NoToken_Returns401()
+    public async Task NoSignature_Returns401()
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
+        req.Headers.Add("X-Profile", TestProfile);
         req.Content = new ByteArrayContent(MakeZip(new() { ["f.txt"] = "x" }));
         var r = await _client!.SendAsync(req);
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
@@ -128,10 +137,10 @@ public class DeployHandlerTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task MalformedAuthHeader_Returns401()
+    public async Task MalformedSignatureHeader_Returns401()
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
-        req.Headers.TryAddWithoutValidation("Authorization", TestToken);
+        req.Headers.TryAddWithoutValidation("X-Signature", "not-valid-hex!");
         req.Headers.Add("X-Profile", TestProfile);
         req.Content = new ByteArrayContent(MakeZip(new() { ["f.txt"] = "x" }));
         var r = await _client!.SendAsync(req);
@@ -146,7 +155,6 @@ public class DeployHandlerTests : IAsyncLifetime
     public async Task UnknownEndpoint_Returns404()
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/admin");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestToken);
         var r = await _client!.SendAsync(req);
         Assert.Equal(HttpStatusCode.NotFound, r.StatusCode);
     }
@@ -165,9 +173,10 @@ public class DeployHandlerTests : IAsyncLifetime
     [Fact]
     public async Task MissingProfileHeader_Returns400()
     {
+        var zipBytes = MakeZip(new() { ["f.txt"] = "x" });
         var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestToken);
-        req.Content = new ByteArrayContent(MakeZip(new() { ["f.txt"] = "x" }));
+        req.Headers.Add("X-Signature", ComputeSignature(zipBytes, TestToken));
+        req.Content = new ByteArrayContent(zipBytes);
         var r = await _client!.SendAsync(req);
         Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
         Assert.Contains("X-Profile", await r.Content.ReadAsStringAsync());
@@ -315,7 +324,7 @@ public class DeployHandlerTests : IAsyncLifetime
         var zip = MakeZip(new() { ["raw.txt"] = "raw deploy" });
 
         var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestToken);
+        req.Headers.Add("X-Signature", ComputeSignature(zip, TestToken));
         req.Headers.Add("X-Profile", TestProfile);
         req.Content = new ByteArrayContent(zip);
         req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
@@ -348,8 +357,9 @@ public class DeployHandlerTests : IAsyncLifetime
         zipContent.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
         content.Add(zipContent, "file"); // 2-arg overload: no filename= in Content-Disposition
 
+        var bodyBytes = await content.ReadAsByteArrayAsync();
         var req = new HttpRequestMessage(HttpMethod.Post, "/deploy");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestToken);
+        req.Headers.Add("X-Signature", ComputeSignature(bodyBytes, TestToken));
         req.Headers.Add("X-Profile", TestProfile);
         req.Content = content;
 
