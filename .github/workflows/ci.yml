@@ -44,18 +44,20 @@ jobs:
             -r linux-x64 \
             --self-contained \
             -p:PublishSingleFile=true \
-            -c Release
+            -c Release \
+            -o server/CitadelServer/bin/Release/publish-sc
 
       - name: Build framework-dependent package
         run: |
           dotnet publish server/CitadelServer \
             -r linux-x64 \
             --no-self-contained \
-            -c Release
+            -c Release \
+            -o server/CitadelServer/bin/Release/publish-fd
 
       - name: Zip framework-dependent package
         run: |
-          cd server/CitadelServer/bin/Release/net10.0/linux-x64/publish
+          cd server/CitadelServer/bin/Release/publish-fd
           zip -r "$GITHUB_WORKSPACE/deploy-server.zip" .
 
       - name: Get next release number
@@ -91,7 +93,7 @@ jobs:
 
             const assets = [
               { path: 'deploy-server.zip',                                                         name: 'deploy-server.zip', type: 'application/zip' },
-              { path: 'server/CitadelServer/bin/Release/net10.0/linux-x64/publish/deploy-server', name: 'deploy-server',     type: 'application/octet-stream' },
+              { path: 'server/CitadelServer/bin/Release/publish-sc/deploy-server',              name: 'deploy-server',     type: 'application/octet-stream' },
               { path: 'install-server.sh',                                                         name: 'install-server.sh', type: 'text/x-sh' },
               { path: 'deploy.sh',                                                                 name: 'deploy.sh',         type: 'text/x-sh' },
               { path: 'deploy.bat',                                                                name: 'deploy.bat',        type: 'text/plain' },
