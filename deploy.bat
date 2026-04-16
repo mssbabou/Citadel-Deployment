@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
@@ -61,7 +61,7 @@ if "!SOURCE:~-4!"==".zip" (
     ) else (
         echo 📦 Zipping file: !SOURCE!
     )
-    powershell -NoProfile -Command "Compress-Archive -Path '!SOURCE!' -DestinationPath '!TEMP_ZIP!' -Force"
+    powershell -NoProfile -Command "$src=[IO.Path]::GetFullPath('!SOURCE!'); $dst='!TEMP_ZIP!'; $name=[IO.Path]::GetFileName($src); Add-Type -Assembly System.IO.Compression; Add-Type -Assembly System.IO.Compression.FileSystem; $zip=[IO.Compression.ZipFile]::Open($dst,'Create'); if([IO.Directory]::Exists($src)){Get-ChildItem $src -Recurse -File | ForEach-Object { $e=$name+'/'+$_.FullName.Substring($src.Length+1).Replace('\','/'); [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip,$_.FullName,$e) | Out-Null }}else{[IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip,$src,$name) | Out-Null}; $zip.Dispose()"
 )
 
 if not exist "!TEMP_ZIP!" (
@@ -93,7 +93,7 @@ if exist "!TEMP_ZIP!" del /q "!TEMP_ZIP!"
 
 REM Check last line of response for OK
 set "LAST_LINE="
-for /f "tokens=*" %%l in ("!RESP_FILE!") do set "LAST_LINE=%%l"
+for /f "usebackq tokens=*" %%l in ("!RESP_FILE!") do set "LAST_LINE=%%l"
 del /q "!RESP_FILE!" 2>nul
 
 if "!LAST_LINE!"=="OK" (
