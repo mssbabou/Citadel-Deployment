@@ -6,20 +6,26 @@ namespace CitadelServer;
 
 public static class DeployHandler
 {
-    public static async Task HandleAsync(HttpContext ctx, ServerConfig config)
+    public static async Task HandleAsync(HttpContext ctx, ServerConfig config, ILogger logger)
     {
+        var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
         // --- Profile lookup ---
         var profileName = ctx.Request.Headers["X-Profile"].FirstOrDefault() ?? "";
         if (string.IsNullOrEmpty(profileName))
         {
+            logger.LogWarning("Missing X-Profile header from {Ip}", ip);
             await Respond(ctx, 400, "missing X-Profile header");
             return;
         }
         if (!config.Profiles.TryGetValue(profileName, out var profile))
         {
+            logger.LogWarning("Unknown profile '{Profile}' from {Ip}", profileName, ip);
             await Respond(ctx, 400, $"unknown profile: {profileName}");
             return;
         }
+
+        logger.LogInformation("Deploy request: profile={Profile} ip={Ip}", profileName, ip);
 
         var deployDir = profile.DeployDir;
         var services = profile.Services;
@@ -36,6 +42,7 @@ public static class DeployHandler
             var extracted = ExtractFromMultipart(body, contentType);
             if (extracted == null)
             {
+                logger.LogWarning("No file in multipart body from {Ip}", ip);
                 await Respond(ctx, 400, "no file found in multipart body");
                 return;
             }
@@ -46,6 +53,7 @@ public static class DeployHandler
         var sigHeader = ctx.Request.Headers["X-Signature"].ToString();
         if (string.IsNullOrEmpty(sigHeader))
         {
+            logger.LogWarning("Unauthorized deploy attempt for profile '{Profile}' from {Ip}: no signature", profileName, ip);
             await Respond(ctx, 401, "unauthorized");
             return;
         }
@@ -56,12 +64,14 @@ public static class DeployHandler
             var actualSig = Convert.FromHexString(sigHeader);
             if (!CryptographicOperations.FixedTimeEquals(expectedSig, actualSig))
             {
+                logger.LogWarning("Unauthorized deploy attempt for profile '{Profile}' from {Ip}: signature mismatch", profileName, ip);
                 await Respond(ctx, 401, "unauthorized");
                 return;
             }
         }
         catch (FormatException)
         {
+            logger.LogWarning("Unauthorized deploy attempt for profile '{Profile}' from {Ip}: invalid signature format", profileName, ip);
             await Respond(ctx, 401, "unauthorized");
             return;
         }
@@ -73,6 +83,7 @@ public static class DeployHandler
         if (!IsValidZip(tmpZip))
         {
             File.Delete(tmpZip);
+            logger.LogWarning("Invalid zip from {Ip} for profile '{Profile}'", ip, profileName);
             await Respond(ctx, 400, "not a valid zip");
             return;
         }
@@ -106,6 +117,7 @@ public static class DeployHandler
         if (unsafeEntry != null)
         {
             Directory.Delete(tmpDir, recursive: true);
+            logger.LogWarning("Unsafe zip entry '{Entry}' from {Ip} for profile '{Profile}' — rejected", unsafeEntry, ip, profileName);
             await Respond(ctx, 400, "unsafe path in zip");
             return;
         }
@@ -135,10 +147,12 @@ public static class DeployHandler
             foreach (var svc in services)
             {
                 var ok = RunSystemctl("stop", svc);
+                logger.LogInformation("Stopping {Service}: {Status}", svc, ok ? "ok" : "failed");
                 await Log($"Stopping {svc}: {(ok ? "ok" : "failed")}");
             }
 
             // --- Replace files ---
+            logger.LogInformation("Replacing files in {DeployDir}", deployDir);
             if (Directory.Exists(deployDir))
                 Directory.Delete(deployDir, recursive: true);
             CopyDirectory(source, deployDir);
@@ -147,6 +161,7 @@ public static class DeployHandler
             // --- Post-update command ---
             if (!string.IsNullOrEmpty(profile.PostUpdateCommand))
             {
+                logger.LogInformation("Running post-update: {Command}", profile.PostUpdateCommand);
                 await Log($"Running post-update: {profile.PostUpdateCommand}");
                 var (cmdOk, cmdOutput) = await RunCommand(profile.PostUpdateCommand, deployDir);
                 if (!string.IsNullOrEmpty(cmdOutput))
@@ -154,6 +169,7 @@ public static class DeployHandler
                         await Log($"  {line.TrimEnd()}");
                 if (!cmdOk)
                 {
+                    logger.LogError("Post-update command failed for profile '{Profile}'", profileName);
                     await Log("ERROR: post-update command failed");
                     foreach (var svc in services)
                         RunSystemctl("start", svc);
@@ -165,13 +181,16 @@ public static class DeployHandler
             foreach (var svc in services)
             {
                 var ok = RunSystemctl("start", svc);
+                logger.LogInformation("Starting {Service}: {Status}", svc, ok ? "ok" : "failed");
                 await Log($"Starting {svc}: {(ok ? "ok" : "failed")}");
             }
 
+            logger.LogInformation("Deploy complete for profile '{Profile}'", profileName);
             await Log("OK");
         }
         catch (Exception ex)
         {
+            logger.LogError(ex, "Unhandled exception during deploy for profile '{Profile}'", profileName);
             try { await Log($"ERROR: {ex.Message}"); } catch { }
             foreach (var svc in services)
                 RunSystemctl("start", svc);

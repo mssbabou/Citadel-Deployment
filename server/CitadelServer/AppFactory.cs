@@ -11,11 +11,16 @@ public static class AppFactory
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddSingleton(config);
         builder.Logging.ClearProviders();
+        builder.Logging.AddConsole();
         builder.WebHost.UseUrls(listenUrl);
 
         var app = builder.Build();
 
-        app.MapPost("/deploy", ctx => DeployHandler.HandleAsync(ctx, config));
+        app.MapPost("/deploy", ctx =>
+        {
+            var logger = ctx.RequestServices.GetRequiredService<ILogger<Program>>();
+            return DeployHandler.HandleAsync(ctx, config, logger);
+        });
 
         return app;
     }
