@@ -2,19 +2,29 @@
 # Written to /opt/citadel/config.toml by install-server.sh. Edit before starting the service.
 #
 # Generate a strong token with: openssl rand -base64 32
+# After editing, restrict access: chmod 600 /opt/citadel/config.toml
 
 [server]
 token = "your-secret-token-here"
 port = 9090
 
+# Optional server settings (defaults shown):
+# max_upload_mb  = 500   # reject deploy uploads above this size with HTTP 413
+# keep_backups   = 3     # number of ".backup-*" directories to keep per profile
+# audit_log_path = ""    # empty = audit.jsonl next to the binary; rotates at 10 MB
+
 # Define one or more deployment profiles.
 # Clients send X-Profile: <name> to select which profile to use.
 # All services listed are stopped before deploy and started after.
+#
+# post_update_command (optional): runs after files replaced, before services start.
+# Executed via `/bin/sh -c`, with `deploy_dir` as CWD and a 60 s timeout.
+# A non-zero exit rolls the deploy back.
 
 [profiles.myapp]
 deploy_dir = "/opt/myapp"
 services = ["myapp.service"]
-# post_update_command = "npm install --omit=dev"   # optional: runs after files replaced, before services start
+# post_update_command = "npm install --omit=dev"
 
 # [profiles.frontend]
 # deploy_dir = "/var/www/html"

@@ -15,6 +15,16 @@ CONFIG="$INSTALL_DIR/config.toml"
 SERVICE_NAME="deploy-server.service"
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 
+if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
+    if [ -x "$BINARY" ]; then
+        "$BINARY" --version
+    else
+        echo "Not installed (no binary at $BINARY)"
+        exit 1
+    fi
+    exit 0
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "Error: run with sudo" >&2
     exit 1
@@ -119,12 +129,29 @@ EOF
     echo ""
     echo -e "${WHITE}       sudo systemctl start $SERVICE_NAME${RESET}"
     echo ""
+    echo -e "${YELLOW}  3. Follow logs:${RESET}"
+    echo ""
+    echo -e "${WHITE}       journalctl -u $SERVICE_NAME -f${RESET}"
+    echo ""
     echo -e "${YELLOW}============================================================${RESET}"
 else
     echo "==> Existing config.toml preserved"
     systemctl restart "$SERVICE_NAME"
-    echo "==> Service restarted with latest binary"
+
+    # Wait briefly for the service to report as active.
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        if systemctl is-active --quiet "$SERVICE_NAME"; then
+            echo "==> Service restarted with latest binary"
+            echo ""
+            echo "Done. View logs with:"
+            echo "  journalctl -u $SERVICE_NAME -f"
+            exit 0
+        fi
+        sleep 0.5
+    done
+
+    echo "==> Service did not start successfully. Recent logs:"
     echo ""
-    echo "Done. View logs with:"
-    echo "  journalctl -u $SERVICE_NAME -f"
+    journalctl -u "$SERVICE_NAME" -n 20 --no-pager || true
+    exit 1
 fi

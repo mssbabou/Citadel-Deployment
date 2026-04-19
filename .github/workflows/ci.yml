@@ -86,20 +86,28 @@ jobs:
               repo: context.repo.repo,
               tag_name: tag,
               name: `Release ${number}`,
-              body: `Automated release from commit ${context.sha.slice(0, 7)}.\n\n**Files:**\n- \`install-server.sh\` — installer/updater for the deploy server (run with sudo, safe to re-run)\n- \`deploy-server.zip\` — framework-dependent Linux x64 package (used by install-server.sh; requires .NET 10 runtime)\n- \`deploy-server\` — self-contained Linux x64 single binary (no runtime required)\n- \`deploy.sh\` — Linux/macOS client\n- \`deploy.bat\` — Windows client\n- \`.env.example\` — configuration template\n\nSee README.md for setup instructions.`,
+              body: `Automated release from commit ${context.sha.slice(0, 7)}.\n\n**Files:**\n- \`install-server.sh\` — installer/updater for the deploy server (run with sudo, safe to re-run)\n- \`deploy-server.zip\` — framework-dependent Linux x64 package (used by install-server.sh; requires .NET 10 runtime)\n- \`deploy-server\` — self-contained Linux x64 single binary (no runtime required)\n- \`deploy.sh\` — Linux/macOS client\n- \`deploy.ps1\` — Windows PowerShell client\n- \`.env.example\` — client config template\n- \`config.toml.example\` — server config template\n\nSee README.md for setup instructions.`,
               draft: false,
               prerelease: false,
             });
 
             const assets = [
-              { path: 'deploy-server.zip',                                                         name: 'deploy-server.zip', type: 'application/zip' },
-              { path: 'server/CitadelServer/bin/Release/publish-sc/deploy-server',              name: 'deploy-server',     type: 'application/octet-stream' },
-              { path: 'install-server.sh',                                                         name: 'install-server.sh', type: 'text/x-sh' },
-              { path: 'deploy.sh',                                                                 name: 'deploy.sh',         type: 'text/x-sh' },
-              { path: 'deploy.bat',                                                                name: 'deploy.bat',        type: 'text/plain' },
-              { path: '.env.example',                                                              name: '.env.example',      type: 'text/plain' },
+              { path: 'deploy-server.zip',                                                         name: 'deploy-server.zip',   type: 'application/zip' },
+              { path: 'server/CitadelServer/bin/Release/publish-sc/deploy-server',                 name: 'deploy-server',       type: 'application/octet-stream' },
+              { path: 'install-server.sh',                                                         name: 'install-server.sh',   type: 'text/x-sh' },
+              { path: 'deploy.sh',                                                                 name: 'deploy.sh',           type: 'text/x-sh' },
+              { path: 'deploy.ps1',                                                                name: 'deploy.ps1',          type: 'text/plain' },
+              { path: '.env.example',                                                              name: '.env.example',        type: 'text/plain' },
               { path: 'config.toml.example',                                                       name: 'config.toml.example', type: 'text/plain' },
             ];
+
+            // Fail-fast: ensure every asset exists before we create the release
+            for (const asset of assets) {
+              if (!fs.existsSync(asset.path)) {
+                core.setFailed(`Asset missing: ${asset.path}`);
+                return;
+              }
+            }
 
             for (const asset of assets) {
               await github.rest.repos.uploadReleaseAsset({
